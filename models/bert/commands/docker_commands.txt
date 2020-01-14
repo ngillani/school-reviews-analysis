@@ -1,0 +1,3 @@
+nvidia-docker run -it -v /media/roy/ngillani:/media/roy/ngillani -w /media/roy/ngillani --name ng_contextual_emb pralav/dl-pack:v2
+sudo docker start ng_contextual_emb
+sudo docker exec -it ng_contextual_emb bash

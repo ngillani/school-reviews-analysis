@@ -14,7 +14,7 @@ import requests
 from lxml import html
 import datefinder
 
-from header import *
+from utils.header import *
 
 
 def output_scores(
@@ -338,7 +338,270 @@ def add_in_geo_info(
 	df_final.to_csv(output_file, index=False)
 
 
+def output_data_for_siamese_bert(
+		input_file='data/all_gs_school_with_metadata.csv',
+		output_file='data/school_reviews_for_siamese_bert.csv'
+	):
+	
+	# 99.9th percentile of number of reviews per school
+	MAX_NUM_REVIEWS = 107
+
+	print ('Loading data ...')
+	df = pd.read_csv(input_file)
+	schools_per_test_score = defaultdict(dict)
+	comments_per_school = defaultdict(list)
+
+	all_data = {
+		'school_1_url': [],
+		'school_1_progress': [],
+		'school_1_test': [],
+		'school_1_review_text': [],
+		'school_2_url': [],
+		'school_2_progress': [],
+		'school_2_test': [],
+		'school_2_review_text': [],
+		'school_1_higher_progress': []
+	}
+
+
+	print ('Aggregating school and comment info ...')
+	for i in range(0, len(df)):
+
+		print (i)
+		# if i == 10000: break
+
+		is_invalid_range = df['test_score_rating'][i] < 1 or df['test_score_rating'][i] > 10
+		ts_nan = np.isnan(float(df['test_score_rating'][i]))
+		ps_nan = np.isnan(float(df['progress_rating'][i]))
+
+		try:
+			no_text = np.isnan(df['review_text'][i]) or len(df['review_text'][i]) == 0
+		except Exception as e:
+			no_text = False
+
+		if is_invalid_range or ts_nan or ps_nan or no_text: continue
+
+		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]] = {}
+		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['progress_rating'] = df['progress_rating'][i]
+		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['test_score_rating'] = df['test_score_rating'][i]
+		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['url'] = df['url'][i]
+
+		comments_per_school[df['url'][i]].append({
+			'review_text': df['review_text'][i],
+			'meta_comment_id': df['meta_comment_id'][i],
+			'date': df['date'][i]
+		})
+
+
+	print ('Generating pairings of schools ...')
+	all_pairs = []
+	for ts in schools_per_test_score:
+		schools_for_test_range = list(schools_per_test_score[ts].keys())
+		np.random.shuffle(schools_for_test_range)
+		for i in range(0, len(schools_for_test_range), 2):
+			print (ts, i, len(all_data['school_1_url']))
+			try:
+				s1 = schools_per_test_score[ts][schools_for_test_range[i]]
+				s2 = schools_per_test_score[ts][schools_for_test_range[i + 1]]
+				
+				s1_sorted_comments = sorted(comments_per_school[s1['url']], key=lambda x:x['date'], reverse=True)
+				s2_sorted_comments = sorted(comments_per_school[s2['url']], key=lambda x:x['date'], reverse=True)
+
+				for j in range(0, np.minimum(len(s1_sorted_comments), MAX_NUM_REVIEWS)):
+					c1 = s1_sorted_comments[j]
+					for k in range(0, np.minimum(len(s2_sorted_comments), MAX_NUM_REVIEWS)):
+						c2 = s2_sorted_comments[k]
+						all_data['school_1_url'].append(s1['url'])
+						all_data['school_1_progress'].append(s1['progress_rating'])
+						all_data['school_1_test'].append(s1['test_score_rating'])
+						all_data['school_1_review_text'].append(c1['review_text'])
+						all_data['school_2_url'].append(s2['url'])
+						all_data['school_2_progress'].append(s2['progress_rating'])
+						all_data['school_2_test'].append(s2['test_score_rating'])
+						all_data['school_2_review_text'].append(c2['review_text'])
+
+						if s1['progress_rating'] == s2['progress_rating']:
+							label = 2
+						else:
+							label = int(s1['progress_rating'] > s2['progress_rating'])
+						all_data['school_1_higher_progress'].append(label)
+
+			except Exception as e:
+				print (e)
+				continue
+
+	df_out = pd.DataFrame(data=all_data)
+	df_out.to_csv(output_file)
+
+
+def update_seda_school_name(x):
+	x = x.lower().replace('.', '').replace(',', '')
+	x = x.replace(' j h', 'junior high')
+	x = x.replace(' h s', 'high school')
+	x = x.replace(' m s', 'middle school')
+	x = x.replace(' e s', 'elementary school')
+
+	parts = x.split(' ')
+	school_name = []
+
+	for p in parts:
+		if p == 'elem':
+			school_name.append('elementary')
+		elif p == 'el':
+			school_name.append('elementary')
+		elif p =='sch':
+			school_name.append('school')
+		elif p == 'jr':
+			school_name.append('junior')
+		elif p == 'sr':
+			school_name.append('senior')
+		elif p == 'es':
+			school_name.append('elementary school')
+		elif p == 'ms':
+			school_name.append('middle school')
+		elif p == 'hs':
+			school_name.append('high school')
+		else:
+			school_name.append(p)
+
+	if not 'school' in school_name:
+		school_name.append('school')
+
+	return ' '.join(school_name)
+
+
+def update_seda_school_city(x):
+
+	try:
+		return x.lower()
+	except Exception as e:
+		return ''
+
+
+def merge_gs_urls_with_seda(
+		seda_file='data/seda_school_pool_gcs_v30.csv',
+		seda_cov_file='data/seda_cov_school_pool_v30.csv',
+		gs_names_file='data/urls_to_name.json',
+		gs_addresses_file='data/all_gs_address_info.json',
+		merged_file='data/gs_and_seda.csv'
+	):
+	
+	school_names = read_dict(gs_names_file)
+	school_addresses = read_dict(gs_addresses_file)
+	df_seda = pd.read_csv(seda_file)
+	df_seda_cov = pd.read_csv(seda_cov_file, encoding = 'latin')
+	df_seda_cov = df_seda_cov.drop(columns=['stateabb'])
+
+	# First, merge the SEDA outcomes and covariates files
+	df_seda = pd.merge(df_seda, df_seda_cov, on='ncessch', how='left')
+
+	# Lower case the school names and turn "elem" into "elementary"
+	df_seda['schoolname'] = df_seda.apply(lambda x: update_seda_school_name(x.schoolname), axis=1)
+	df_seda['schcity'] = df_seda.apply(lambda x: update_seda_school_city(x.schcity), axis=1)
+
+	# Create dataframe for gs info
+	gs_data = {
+		'url': [],
+		'schoolname': [],
+		'stateabb': [],
+		'schcity': []
+	}
+
+	for i, u in enumerate(school_names):
+		print (i / float(len(school_names)))
+
+		try:
+			name = school_names[u].lower().replace('.', '').replace(',','')
+			name = name.replace('jr', 'junior').replace('sr', 'senior')
+			if not 'school' in name: 
+				name += ' school'
+			state = school_addresses[u]['school_address'].split(' ')[-2]
+
+			city = u.split('/')[4].lower().replace('-', ' ')
+		except Exception as e:
+			print (e)
+			continue
+
+		gs_data['url'].append(u)
+		gs_data['schoolname'].append(name)
+		gs_data['stateabb'].append(state)
+		gs_data['schcity'].append(city)
+
+	df_gs = pd.DataFrame(data=gs_data)
+
+	# Merge dataframes
+	df = pd.merge(df_seda, df_gs, on=['schoolname', 'stateabb', 'schcity'], how='left')
+	df = df.groupby(['ncessch']).first().reset_index()
+	print (len(df))
+	df.to_csv(merged_file)
+
+
+def update_seda_with_missing_gs_urls(
+		input_file='data/gs_and_seda.csv',
+		gs_urls_dir='data/all_school_gs_urls_for_missing_seda/',
+		output_file='data/gs_and_seda_updated.csv'
+	):
+
+	df = pd.read_csv(input_file)
+	for i in range(0, len(df)):
+		print (i)
+		try:
+			curr = read_dict(gs_urls_dir + str(df['ncessch'][i]) + '.json')
+			df['url'][i] = curr['url']
+		except Exception as e:
+			continue
+
+	df.to_csv(output_file)
+
+
+def merge_comments_and_seda_and_other_post_processing(
+		seda_file='data/gs_and_seda_updated.csv',
+		comments_file='data/all_gs_reviews_ratings_with_metadata.csv',
+		output_file='data/all_gs_and_seda_with_comments.csv',
+		output_file_2='data/all_gs_and_seda_no_comments.csv'
+	):
+	
+	print ('Loading data ...')
+	df_seda = pd.read_csv(seda_file)
+	df_gs = pd.read_csv(comments_file)
+
+	print ('Merging data ...')
+	df = pd.merge(df_gs, df_seda, on='url', how='left')
+
+	print ('Adding number of words per review')
+	num_words_per_review = []
+	for i in range(0, len(df)):
+		try:
+			num_words = len(df['review_text'][i].split(' '))
+			num_words_per_review.append(num_words)
+		except Exception as e:
+			num_words_per_review.append(0)
+	df['num_words'] = num_words_per_review
+
+	print ('Keeping only some subsets of the data')
+	cols_to_keep = ['url', 'review_text', 'num_words', 'progress_rating', \
+					'test_score_rating', 'equity_rating', 'overall_rating', \
+					'top_level', 'teachers', 'bullying', 'learning_differences', \
+					'leadership', 'character', 'homework', 'city', 'state_x', \
+					'city_and_state', 'med_hhinc2016', 'tract_id', 'meta_comment_id', \
+					'nonwhite_share2010', 'mn_avg_eb', 'mn_grd_eb', 'date', 'user_type']
+
+	df = df[cols_to_keep]
+	print (len(df))
+
+	print ('Outputting data ...')
+	df.to_csv(output_file)
+
+	print ('Dropping review text column')
+	df = df.drop(columns=['review_text'])
+	df.to_csv(output_file_2)
+
+
 if __name__ == "__main__":
 	# output_scores()
-	output_reviews()
-	add_in_geo_info()
+	# output_reviews()
+	# add_in_geo_info()
+	# output_data_for_siamese_bert()
+	# merge_gs_urls_with_seda()
+	# update_seda_with_missing_gs_urls()
+	merge_comments_and_seda_and_other_post_processing()

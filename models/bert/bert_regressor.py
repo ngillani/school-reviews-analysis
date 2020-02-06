@@ -10,8 +10,7 @@ class BertForSequenceRegression(nn.Module):
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
         outputs = self.bert(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
-        pooled_output = outputs[1]
+        input_embs = self.dropout(outputs[0].mean(dim=1))
         attentions = outputs[2]
-        pooled_output = self.dropout(pooled_output)
-        return self.output_layer(pooled_output), attentions
+        return self.output_layer(input_embs), attentions
 

@@ -5,11 +5,10 @@
 	@date 12.6.19
 '''
 
-from utils.header import *
+from header import *
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn import svm
 from gensim.parsing.preprocessing import remove_stopwords
@@ -17,8 +16,6 @@ from gensim.utils import simple_preprocess
 
 import pandas as pd
 from scipy.stats import pearsonr
-
-import pickle
 
 
 def prepare_for_training(all_y):
@@ -35,15 +32,17 @@ def prepare_for_training(all_y):
 
 def tfidf_vectorize_descriptions(
 		compute_embeddings=True,
-		data_file='data/all_gs_and_seda_with_comments.csv',
-		outcome='mn_avg_eb',
+		data_file='data/all_gs_reviews_ratings.csv',
+		outcome='progress_rating',
 		output_file='data/models/vectorized_reviews_data_tfidf_%s.npz'
 	):
 
+	print ('Loading data ...')
+	df = pd.read_csv(data_file)
+
 	if compute_embeddings:
-		
-		print ('Loading data ...')
-		df = pd.read_csv(data_file)
+
+		# NUM_IND_CUTOFF = np.median(self._ind_counts.values()) / 2
 
 		vocab = set()
 		all_x = []
@@ -67,7 +66,7 @@ def tfidf_vectorize_descriptions(
 		print ('Vectorizing input ...')
 		all_x = np.array(all_x)
 		print ('num reviews: %s' % len(all_x))
-		vectorizer = TfidfVectorizer(ngram_range=(1,2), strip_accents='ascii', min_df=5)
+		vectorizer = TfidfVectorizer(ngram_range=(1,1), vocabulary=list(vocab))
 		transformed_x = vectorizer.fit_transform(all_x)
 		all_y = np.array(all_y)
 		np.savez(
@@ -91,9 +90,8 @@ def tfidf_vectorize_descriptions(
 
 def train_and_test_classifier(
 		compute_embeddings=True,
-		outcome='mn_avg_eb',
-		data_file='data/all_gs_and_seda_with_comments.csv',
-		model_file='data/models/trained_model_%s_%s.sav'
+		outcome='test_score_rating',
+		data_file='data/all_gs_reviews_ratings.csv',
 	):
 
 	print ('Getting TF-IDF embeddings ...')
@@ -103,10 +101,9 @@ def train_and_test_classifier(
 
 	train_inds, test_inds = prepare_for_training(all_y)
 
+	print ('Training model ...')
 	# r = LinearRegression()
-	# r = DecisionTreeRegressor()
-	r = RandomForestRegressor()
-	print ('Training model ', r)
+	r = DecisionTreeRegressor()
 	r.fit(transformed_x[train_inds,:], all_y[train_inds])
 
 	print ('Testing model ...')
@@ -115,12 +112,9 @@ def train_and_test_classifier(
 	print (all_y[test_inds][0:10])
 	print (preds[0:10])
  
-	mse = mean_squared_error(all_y[test_inds], preds)
-	print ('MSE: ', mse)
-
-	print ('Saving model ...')
-	pickle.dump(r, model_file % (outcome, str(mse)))
-
+	# print (mean_squared_error(all_y[test_inds], preds))
+	print (mean_absolute_error(all_y[test_inds], preds))
+	print (pearsonr(all_y[test_inds], preds))
 
 
 if __name__ == "__main__":

@@ -104,12 +104,12 @@ def start(
         # Train the data for one epoch
         for step, batch in enumerate(train_dataloader):
 
-            batch = tuple(t.to(device) for t in batch)
+                
             input_ids, input_mask, t_scores, a_scores = batch
 
             # Forward pass — do not store attentions during training
             predicted, _ = model(input_ids, attention_mask=input_mask)
-            random_preds = torch.empty(BATCH_SIZE).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
+            random_preds = torch.empty(input_ids.size(0)).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
             # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], a_scores)
             t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], random_preds)
 

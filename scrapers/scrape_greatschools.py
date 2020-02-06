@@ -5,7 +5,7 @@
 	@date 12.3.19
 '''
 
-from header import *
+from utils.header import *
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -285,9 +285,41 @@ def scrape_parallel(
 	p.join()
 
 
+def identify_greatschools_urls(
+		input_file='data/gs_and_seda.csv',
+		output_dir='data/all_school_gs_urls_for_missing_seda/'
+	):
+
+	from googlesearch import search
+	df = pd.read_csv(input_file)
+
+	df = df[df['url'].isin([float('nan'), ''])].reset_index()
+
+	# already_scraped_urls = set([f.split('.json')[0] for f in os.listdir(output_dir)])
+	# remaining_queries = list(set([str(df['ncessch'][i] for i in range(0, len(df)))]) - already_scraped_urls)
+	# num_remaining = float(len(remaining_queries))
+	# print (num_remaining)
+
+	for i in range(0, len(df)):
+
+		try:
+			q = df['schoolname'][i] + ' ' + df['stateabb'][i] + ' greatschools'
+			print ('Making query: ', q)
+			result = search(q, tld="com", lang="en", num=10, start=0, stop=9, pause=1 + np.random.random())
+			for link in result:
+				if link.startswith("https://www.greatschools.org"):
+					print (link)
+					write_dict(output_dir + str(df['ncessch'][i]) + '.json', {'url': link})
+					break
+		except Exception as e:
+			print (e)
+			continue
+
+
 
 if __name__ == "__main__":
 	# get_school_urls_for_insideschools()
 	# get_all_school_urls()
 	# scrape_all_gs_data(['https://www.greatschools.org/virginia/fredericksburg/1660-Massaponax-High-School/'])
-	scrape_parallel()
+	# scrape_parallel()
+	identify_greatschools_urls()

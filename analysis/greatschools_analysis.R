@@ -56,7 +56,6 @@ df_school_leaders_s <- standardize_df_school(df_school_leaders_g)
 
 # source("model_utils.R")
 
-
 ############### Bias analysis and balance checks ############### 
 
 # How do SEDA and GS scores compare to one another - and other features of reviews?
@@ -71,6 +70,13 @@ df_y <- df %>% count(year) %>% filter(year < 2020, year > 2000)
 plot(df_y$year, df_y$n)
 lines(df_y$year, df_y$n)
 title(xlab="Year", ylab="Number of comments")
+
+### Q: What are the characteristics of schools that we have SEDA test score and growth measures for?
+df_s_school$has_seda_mean <- !is.nan(df_s_school$seda_mean)
+df_s_school$has_seda_growth <- !is.nan(df_s_school$seda_growth)
+
+all <- lm(has_seda_growth ~ household_income + percent_nonwhite, data=df_s_school)
+summary(all)
 
 ### Q: What are the characteristics of schools that have more reviews?
 all <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school)
@@ -311,6 +317,6 @@ stargazer(all, students, parents, teachers, comm_members, type="html",  column.l
 ################## TODO: try mixed effects models instead of averaging over school-level variables and running OLS, as above ##################
 
 library(lme4)
-mem <- lmer(seda_growth ~ seda_ + (progress_rating | url) + (progress_rating | city_and_state) + (test_score_rating | url) + (1 | city_and_state), data=df_s)
+mem <- lmer(seda_growth ~ seda_mean + (1 | user_type) + (1 | year) + (1 | city_and_state), data=df_s_school)
 summary(mem)
 anova(mem)

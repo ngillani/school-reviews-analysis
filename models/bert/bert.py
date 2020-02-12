@@ -34,6 +34,7 @@ def start(
     
     print('loss function: {}'.format(loss))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#    device = "cpu"
     n_gpu = torch.cuda.device_count()
     #torch.cuda.get_device_name(0)
     print(device)
@@ -46,18 +47,21 @@ def start(
     TEST_SCORE_MEAN = 5.72
     TEST_SCORE_STD = 2.52
 
-    input_ids, labels_t, labels_a, attention_masks = load_and_cache_data(max_len=MAX_LEN)
+    input_ids, year_ids, labels_test, labels_progress, attention_masks = load_and_cache_data(max_len=MAX_LEN)
 
     train_dataloader = make_dataloader(
-            (input_ids['train'], attention_masks['train'], labels_t['train'], labels_a['train']),
+            (input_ids['train'], year_ids['train'], attention_masks['train'], labels_test['train'], labels_progress['train']),
             BATCH_SIZE)
 
     validation_dataloader = make_dataloader(
-            (input_ids['validation'], attention_masks['validation'], labels_t['validation'], labels_a['validation']),
+            (input_ids['validation'], year_ids['validation'],
+             attention_masks['validation'], labels_test['validation'], labels_progress['validation']),
             BATCH_SIZE)
 
     config = BertConfig(output_attentions=True)
-    model = BertForSequenceRegression(config, num_output=2)
+
+    model = BertForSequenceRegression(config, num_output=1,
+                                      num_years=torch.max(year_ids['train']) + 1)
     model.cuda()
 
     # TODO(nabeel) what is this stuff doing
@@ -72,12 +76,7 @@ def start(
     optimizer = BertAdam(optimizer_grouped_parameters, lr=2e-5, warmup=.1)
 
     # Loss function
-    if loss == 'adv':
-        print 'Adversarial loss ...'
-        loss_fct = AdversarialLoss()
-    else:
-        print 'Straight up loss ...'
-        loss_fct = StraightUpLoss()
+    loss_fct = StraightUpLoss()
 
     print('Training')
     for epoch in range(NUM_EPOCHS):
@@ -104,27 +103,26 @@ def start(
         # Train the data for one epoch
         for step, batch in enumerate(train_dataloader):
 
-                
-            input_ids, input_mask, t_scores, a_scores = batch
+            batch = tuple(t.to(device) for t in batch)
+            input_ids, year_ids, input_mask, test_scores, progress_scores = batch
 
             # Forward pass — do not store attentions during training
-            predicted, _ = model(input_ids, attention_mask=input_mask)
-            random_preds = torch.empty(input_ids.size(0)).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
-            # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], a_scores)
-            t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], random_preds)
+            predicted, _ = model(input_ids, year_ids, attention_mask=input_mask)
+            # random_preds = torch.empty(input_ids.size(0)).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
+            # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], test_scores, predicted[:, 1], progress_scores)
+            t_loss = loss_fct.compute_loss(predicted, test_scores)
 
             # Clear out the old accumulated gradients
             optimizer.zero_grad()
             
             # Compute new gradients
-            loss.backward()
+            t_loss.backward()
 
             # Update parameters and take a step using the computed gradient
             optimizer.step()
 
             # Update tracking variables
             tr_loss += t_loss.item()
-            tr_adv_loss += a_loss.item()
 
             nb_tr_steps += 1
 
@@ -147,18 +145,17 @@ def start(
             batch = tuple(t.to(device) for t in batch)
             
             # Unpack the inputs from our dataloader
-            input_ids, input_mask, t_scores, a_scores = batch
+            input_ids, year_ids, input_mask, test_scores, progress_scores = batch
             
             # Telling the model not to compute or store gradients, saving memory and speeding up validation
             with torch.no_grad():
               # Forward pass, calculate logit predictions
-              predicted, attn_mask = model(input_ids, attention_mask=input_mask)
-              random_preds = torch.empty(BATCH_SIZE).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
-              # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], a_scores)
-              t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], t_scores, predicted[:, 1], random_preds)
+              predicted, attn_mask = model(input_ids, year_ids, attention_mask=input_mask)
+              # random_preds = torch.empty(BATCH_SIZE).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
+              # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], test_scores, predicted[:, 1], progress_scores)
+              t_loss = loss_fct.compute_loss(predicted, test_scores)
 
             eval_loss += t_loss.item()
-            eval_adv_loss += a_loss.item()
 
             # Move logits and labels to CPU
             nb_eval_steps += 1

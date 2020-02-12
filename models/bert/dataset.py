@@ -9,24 +9,37 @@ import pandas as pd
 import pdb
 import numpy as np
 
+key_vals = {}   #  key -> set of values
+
 def make_dataloader(data, batch_size, sampler=None):
     data = TensorDataset(*data)
     data_loader = DataLoader(data, sampler=sampler, batch_size=batch_size)
     return data_loader
 
+def add_val(key_name, val):
+    if key_name not in key_vals:
+        key_vals[key_name] = {}
+    if val not in key_vals[key_name]:
+        key_vals[key_name][val] = len(key_vals[key_name])
+
+def date_to_year(df, split_ind):
+#    print(df['date'][split_ind][0:100])
+    return [d.split('-')[0] for d in df['date'][split_ind]]
+
 def load_and_cache_data(
-#        raw_data_file='data/all_gs_reviews_ratings.csv', 
-#        prepared_data_file='data/prepared_data_for_bert.p',
-        raw_data_file='data/tiny_gs_review_ratings.csv',
-        prepared_data_file='data/tiny_gs_review_ratings.p',
+#        raw_data_file='data/tiny_seda_ratings.csv', 
+#        prepared_data_file='data/tiny_prepared_data_for_bert.p',
+        raw_data_file='data/all_gs_and_seda_with_comments.csv',
+        prepared_data_file='data/all_gs_and_seda_with_comments.p',
+#        raw_data_file='data/tiny_gs_review_ratings.csv',
+#        prepared_data_file='data/tiny_gs_review_ratings.p',
         max_len=512,
         train_frac = 0.8
     ):
 
     if os.path.isfile(prepared_data_file):
-    # if False:
         with open(prepared_data_file, 'rb') as f:
-            input_ids, labels_t, labels_a, attention_masks = pickle.load(f)
+            input_ids, year_ids, labels_test, labels_progress, attention_masks = pickle.load(f)
 
         print('data loaded!')
 
@@ -34,8 +47,7 @@ def load_and_cache_data(
 
         print('Loading data ...')
 
-        df = pd.read_csv(raw_data_file).dropna(subset=['progress_rating',
-                                                       'test_score_rating', 'review_text']).reset_index()
+        df = pd.read_csv(raw_data_file).dropna(subset=['mn_avg_eb', 'review_text', 'date']).reset_index()
 
         all_ind = list(range(0, len(df)))
         np.random.shuffle(all_ind)
@@ -44,14 +56,20 @@ def load_and_cache_data(
         val_ind = all_ind[int(train_frac*len(all_ind)):]
 
         data = {'train': list(df['review_text'][train_ind]), 'validation': list(df['review_text'][val_ind])}
-        labels_t = {'train': list(df['progress_rating'][train_ind]), 'validation': list(df['progress_rating'][val_ind])}
-        labels_a = {'train': list(df['test_score_rating'][train_ind]), 'validation': list(df['test_score_rating'][val_ind])}
+        years = {'train': date_to_year(df, train_ind), 'validation': date_to_year(df, val_ind)}
+        labels_test = {'train': list(df['mn_avg_eb'][train_ind]), 'validation': list(df['mn_avg_eb'][val_ind])}
+        labels_progress = {'train': list(df['mn_grd_eb'][train_ind]), 'validation': list(df['mn_grd_eb'][val_ind])}
 
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         tokenized_texts = {}  # split -> list of list of tokens
 
+        year_ids = {}
         for d in data:
+            year_ids[d] = []
             tokenized_texts[d] = []
+            for year in years[d]:
+                add_val("year", year)
+                year_ids[d].append(key_vals["year"][year])
             for sent in data[d]:
                 try:
                     tokenized_texts[d].append(tokenizer.tokenize(sent.decode('utf-8')))
@@ -78,12 +96,11 @@ def load_and_cache_data(
             attention_masks[d] = masks
 
         with open(prepared_data_file, 'wb') as f:
-            pickle.dump((input_ids, labels_t, labels_a, attention_masks), f)
+            pickle.dump((input_ids, year_ids, labels_test, labels_progress, attention_masks), f)
             print('Data written to disk')
 
-
-    for dataset in [input_ids, labels_t, labels_a, attention_masks]:
+    for dataset in [input_ids, year_ids, labels_test, labels_progress, attention_masks]:
         for d in dataset:
             dataset[d] = torch.tensor(dataset[d])
 
-    return input_ids, labels_t, labels_a, attention_masks
+    return input_ids, year_ids, labels_test, labels_progress, attention_masks

@@ -45,15 +45,15 @@ def start(
     NUM_EPOCHS = 5
     RETRAIN = 0
 
-    input_ids, labels_progress, attention_masks = load_and_cache_data(max_len=MAX_LEN)
+    input_ids, labels_progress, attention_masks, num_sentences_per_school = load_and_cache_data(max_len=MAX_LEN)
 
     train_dataloader = make_dataloader(
-            (input_ids['train'], attention_masks['train'], labels_progress['train']),
+            (input_ids['train'], attention_masks['train'], labels_progress['train'], num_sentences_per_school['train']),
             BATCH_SIZE)
 
     validation_dataloader = make_dataloader(
             (input_ids['validation'],
-             attention_masks['validation'], labels_progress['validation']),
+             attention_masks['validation'], labels_progress['validation'], num_sentences_per_school['validation']),
             BATCH_SIZE)
 
     config = BertConfig(output_attentions=True)
@@ -100,11 +100,20 @@ def start(
         # Train the data for one epoch
         for step, batch in enumerate(train_dataloader):
 
-            batch = tuple(t.to(device) for t in batch)
-            input_ids, input_mask, progress_scores = batch
+            input_ids, input_mask, progress_scores, num_sentences_per_school = batch
+
+            num_sentences_per_school, perm = torch.sort(num_sentences_per_school, descending=True)
+            input_ids = input_ids[perm, :, :]
+            input_mask = input_mask[perm, :, :]
+            progress_scores = progress_scores[perm]
+
+            num_sentences_per_school = num_sentences_per_school.to(device)
+            input_ids = input_ids.to(device)
+            input_mask = input_mask.to(device)
+            progress_scores = progress_scores.to(device)
 
             # Forward pass — do not store attentions during training
-            predicted, _ = model(input_ids, attention_mask=input_mask)
+            predicted = model(input_ids, num_sentences_per_school, attention_mask=input_mask)
 
             t_loss = loss_fct.compute_loss(predicted, progress_scores)
 
@@ -138,15 +147,19 @@ def start(
 
         # Evaluate data for one epoch
         for batch in validation_dataloader:
-            batch = tuple(t.to(device) for t in batch)
-            
             # Unpack the inputs from our dataloader
-            input_ids, input_mask, progress_scores = batch
+            input_ids, input_mask, progress_scores, num_sentences_per_school = batch
+            num_sentences_per_school, perm = torch.sort(num_sentences_per_school, descending=True)
+            input_ids = input_ids[perm, :, :]
+            input_mask = input_mask[perm, :, :]
+            progress_scores = progress_scores[perm]
+            for data in [num_sentences_per_school, input_ids, input_mask, progress_scores]:
+                data.to(device)            
             
             # Telling the model not to compute or store gradients, saving memory and speeding up validation
             with torch.no_grad():
               # Forward pass, calculate logit predictions
-              predicted, attn_mask = model(input_ids, attention_mask=input_mask)
+              predicted = model(input_ids, num_sentences_per_school, attention_mask=input_mask)
               t_loss = loss_fct.compute_loss(predicted, progress_scores)
 
             eval_loss += t_loss.item()

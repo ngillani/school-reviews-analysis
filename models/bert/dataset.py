@@ -36,10 +36,10 @@ def load_and_cache_data(
         train_frac = 0.8
     ):
 
-    if os.path.isfile(prepared_data_file):
-#    if False:
+#    if os.path.isfile(prepared_data_file):
+    if False:
         with open(prepared_data_file, 'rb') as f:
-            input_ids, labels_progress, attention_masks = pickle.load(f)
+            input_ids, labels_progress, attention_masks, sentences_per_school = pickle.load(f)
         print('data loaded from cache!')
     else:
 
@@ -61,10 +61,12 @@ def load_and_cache_data(
 
         input_ids = {}   # split -> list of list of ids
         attention_masks = {}  # split -> list of attention masks
+        sentences_per_school = {}  # split -> list of list of number of sentences
     
         for d in data:
             input_ids[d] = []
             attention_masks[d] = []
+            sentences_per_school[d] = []
             for review in data[d]:
                 try:
                     text_sentences = spacy_nlp(review.decode('utf-8'))
@@ -91,18 +93,19 @@ def load_and_cache_data(
 
                     input_ids[d].append(token_id_vectors)
                     attention_masks[d].append(attention_mask_vectors)
+                    sentences_per_school[d].append(float(len(list(text_sentences.sents))))
                 except:
                     raise
                     pdb.set_trace()
 
         with open(prepared_data_file, 'wb') as f:
-            pickle.dump((input_ids, labels_progress, attention_masks), f)
+            pickle.dump((input_ids, labels_progress, attention_masks, sentences_per_school), f)
             print('Data written to disk')
 
     # tensorize
-    for dataset in [labels_progress, input_ids, attention_masks]:
+    for dataset in [labels_progress, input_ids, attention_masks, sentences_per_school]:
         for d in dataset:
             dataset[d] = torch.tensor(dataset[d])
 
 # 800 * 50 * 30
-    return input_ids, labels_progress, attention_masks
+    return input_ids, labels_progress, attention_masks, sentences_per_school

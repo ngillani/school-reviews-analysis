@@ -1,6 +1,7 @@
 import os
 import pickle
 
+import spacy
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from transformers import BertTokenizer
@@ -10,6 +11,8 @@ import pdb
 import numpy as np
 
 key_vals = {}   #  key -> set of values
+
+MAX_SENTENCES_PER_SCHOOL = 50
 
 def make_dataloader(data, batch_size, sampler=None):
     data = TensorDataset(*data)
@@ -27,27 +30,22 @@ def date_to_year(df, split_ind):
     return [d.split('-')[0] for d in df['date'][split_ind]]
 
 def load_and_cache_data(
-#        raw_data_file='data/tiny_seda_ratings.csv', 
-#        prepared_data_file='data/tiny_prepared_data_for_bert.p',
-        raw_data_file='data/all_gs_and_seda_with_comments.csv',
-        prepared_data_file='data/all_gs_and_seda_with_comments.p',
-#        raw_data_file='data/tiny_gs_review_ratings.csv',
-#        prepared_data_file='data/tiny_gs_review_ratings.p',
-        max_len=512,
+        raw_data_file='data/tiny_by_school.csv',
+        prepared_data_file='data/tiny_by_school.p',
+        max_len=30,
         train_frac = 0.8
     ):
 
     if os.path.isfile(prepared_data_file):
+#    if False:
         with open(prepared_data_file, 'rb') as f:
-            input_ids, year_ids, labels_test, labels_progress, attention_masks = pickle.load(f)
-
-        print('data loaded!')
-
+            input_ids, labels_progress, attention_masks = pickle.load(f)
+        print('data loaded from cache!')
     else:
 
         print('Loading data ...')
 
-        df = pd.read_csv(raw_data_file).dropna(subset=['mn_avg_eb', 'review_text', 'date']).reset_index()
+        df = pd.read_csv(raw_data_file).dropna(subset=['mn_grd_eb', 'review_text']).reset_index()
 
         all_ind = list(range(0, len(df)))
         np.random.shuffle(all_ind)
@@ -56,51 +54,55 @@ def load_and_cache_data(
         val_ind = all_ind[int(train_frac*len(all_ind)):]
 
         data = {'train': list(df['review_text'][train_ind]), 'validation': list(df['review_text'][val_ind])}
-        years = {'train': date_to_year(df, train_ind), 'validation': date_to_year(df, val_ind)}
-        labels_test = {'train': list(df['mn_avg_eb'][train_ind]), 'validation': list(df['mn_avg_eb'][val_ind])}
         labels_progress = {'train': list(df['mn_grd_eb'][train_ind]), 'validation': list(df['mn_grd_eb'][val_ind])}
 
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        tokenized_texts = {}  # split -> list of list of tokens
+        spacy_nlp = spacy.load('en_core_web_sm')  # For sentence segmentation
 
-        year_ids = {}
+        input_ids = {}   # split -> list of list of ids
+        attention_masks = {}  # split -> list of attention masks
+    
         for d in data:
-            year_ids[d] = []
-            tokenized_texts[d] = []
-            for year in years[d]:
-                add_val("year", year)
-                year_ids[d].append(key_vals["year"][year])
-            for sent in data[d]:
+            input_ids[d] = []
+            attention_masks[d] = []
+            for review in data[d]:
                 try:
-                    tokenized_texts[d].append(tokenizer.tokenize(sent.decode('utf-8')))
+                    text_sentences = spacy_nlp(review.decode('utf-8'))
+                    # Choose at most MAX_SENTENCES_PER_SCHOOL to include.
+                    # (For now just choose the earliest.)
+                    token_id_vectors = []
+                    attention_mask_vectors = []
+                    for i, sentence in enumerate(text_sentences.sents):
+                        # Convert to bert IDs
+                        tokens = tokenizer.tokenize(sentence.text)
+                        ids = tokenizer.convert_tokens_to_ids(tokens)[:max_len]
+                        # Pad words if needed
+                        if len(ids) < max_len:
+                            ids += [0] * (max_len - len(ids))
+                        attention_mask = [float(id>0) for id in ids]
+                        token_id_vectors.append(ids)
+                        attention_mask_vectors.append(attention_mask)
+                        if i >= MAX_SENTENCES_PER_SCHOOL - 1:
+                            break
+                    # Pad sentences if needed
+                    while len(token_id_vectors) < MAX_SENTENCES_PER_SCHOOL:
+                        token_id_vectors.append([0] * max_len)
+                        attention_mask_vectors.append([0.0] * max_len)
+
+                    input_ids[d].append(token_id_vectors)
+                    attention_masks[d].append(attention_mask_vectors)
                 except:
+                    raise
                     pdb.set_trace()
 
-        input_ids = {}   # split -> list of list of token ids
-        for d in tokenized_texts:
-            ids = [tokenizer.convert_tokens_to_ids(x) for x in tokenized_texts[d]]
-            for idx in range(len(ids)):
-                if len(ids[idx]) > max_len:
-                    ids[idx] = ids[idx][:max_len]
-                if len(ids[idx]) < max_len:
-                    ids[idx] = ids[idx] + [0]*(max_len-len(ids[idx]))
-            input_ids[d] = ids
-            #input_ids[d] = pad_sequences(ids, maxlen=max_len, dtype="long", truncating="pre", padding="pre")
-
-        attention_masks = {}
-        for d in input_ids:
-            masks = []
-            for seq in input_ids[d]:
-                seq_mask = [float(i>0) for i in seq]
-                masks.append(seq_mask)
-            attention_masks[d] = masks
-
         with open(prepared_data_file, 'wb') as f:
-            pickle.dump((input_ids, year_ids, labels_test, labels_progress, attention_masks), f)
+            pickle.dump((input_ids, labels_progress, attention_masks), f)
             print('Data written to disk')
 
-    for dataset in [input_ids, year_ids, labels_test, labels_progress, attention_masks]:
+    # tensorize
+    for dataset in [labels_progress, input_ids, attention_masks]:
         for d in dataset:
             dataset[d] = torch.tensor(dataset[d])
 
-    return input_ids, year_ids, labels_test, labels_progress, attention_masks
+# 800 * 50 * 30
+    return input_ids, labels_progress, attention_masks

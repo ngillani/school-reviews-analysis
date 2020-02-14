@@ -21,7 +21,7 @@ from transformers import BertModel, BertConfig
 from transformers import AdamW
 from pytorch_pretrained_bert import BertAdam
 
-from bert_regressor import BertForSequenceRegression
+from robert_regressor import RobertForSequenceRegression
 from loss_function import AdversarialLoss, StraightUpLoss
 from metric import accuracy, AUC, f1
 from dataset import make_dataloader, load_and_cache_data
@@ -40,28 +40,25 @@ def start(
     print(device)
     print(n_gpu)
 
-    MAX_LEN = 512
+    MAX_LEN = 30   # max words per sentence
     BATCH_SIZE = 4
     NUM_EPOCHS = 5
     RETRAIN = 0
-    TEST_SCORE_MEAN = 5.72
-    TEST_SCORE_STD = 2.52
 
-    input_ids, year_ids, labels_test, labels_progress, attention_masks = load_and_cache_data(max_len=MAX_LEN)
+    input_ids, labels_progress, attention_masks = load_and_cache_data(max_len=MAX_LEN)
 
     train_dataloader = make_dataloader(
-            (input_ids['train'], year_ids['train'], attention_masks['train'], labels_test['train'], labels_progress['train']),
+            (input_ids['train'], attention_masks['train'], labels_progress['train']),
             BATCH_SIZE)
 
     validation_dataloader = make_dataloader(
-            (input_ids['validation'], year_ids['validation'],
-             attention_masks['validation'], labels_test['validation'], labels_progress['validation']),
+            (input_ids['validation'],
+             attention_masks['validation'], labels_progress['validation']),
             BATCH_SIZE)
 
     config = BertConfig(output_attentions=True)
 
-    model = BertForSequenceRegression(config, num_output=1,
-                                      num_years=torch.max(year_ids['train']) + 1)
+    model = RobertForSequenceRegression(config, num_output=1)
     model.cuda()
 
     # TODO(nabeel) what is this stuff doing
@@ -104,13 +101,12 @@ def start(
         for step, batch in enumerate(train_dataloader):
 
             batch = tuple(t.to(device) for t in batch)
-            input_ids, year_ids, input_mask, test_scores, progress_scores = batch
+            input_ids, input_mask, progress_scores = batch
 
             # Forward pass — do not store attentions during training
-            predicted, _ = model(input_ids, year_ids, attention_mask=input_mask)
-            # random_preds = torch.empty(input_ids.size(0)).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
-            # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], test_scores, predicted[:, 1], progress_scores)
-            t_loss = loss_fct.compute_loss(predicted, test_scores)
+            predicted, _ = model(input_ids, attention_mask=input_mask)
+
+            t_loss = loss_fct.compute_loss(predicted, progress_scores)
 
             # Clear out the old accumulated gradients
             optimizer.zero_grad()
@@ -145,15 +141,13 @@ def start(
             batch = tuple(t.to(device) for t in batch)
             
             # Unpack the inputs from our dataloader
-            input_ids, year_ids, input_mask, test_scores, progress_scores = batch
+            input_ids, input_mask, progress_scores = batch
             
             # Telling the model not to compute or store gradients, saving memory and speeding up validation
             with torch.no_grad():
               # Forward pass, calculate logit predictions
-              predicted, attn_mask = model(input_ids, year_ids, attention_mask=input_mask)
-              # random_preds = torch.empty(BATCH_SIZE).normal_(mean=TEST_SCORE_MEAN,std=TEST_SCORE_STD).to(device)
-              # t_loss, a_loss, loss = loss_fct.compute_loss(predicted[:, 0], test_scores, predicted[:, 1], progress_scores)
-              t_loss = loss_fct.compute_loss(predicted, test_scores)
+              predicted, attn_mask = model(input_ids, attention_mask=input_mask)
+              t_loss = loss_fct.compute_loss(predicted, progress_scores)
 
             eval_loss += t_loss.item()
 

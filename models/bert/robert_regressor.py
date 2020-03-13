@@ -2,11 +2,14 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from transformers import BertModel
+
 from loss_function import StraightUpLoss
+
 import pdb
 import numpy as np
 
 class RobertForSequenceRegression(nn.Module):
+
 	def __init__(self, config, num_output=1, recurrent_hidden_size=1024, recurrent_num_layers=1):
 		super(RobertForSequenceRegression, self).__init__()
 		self.config = config

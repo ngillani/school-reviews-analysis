@@ -30,15 +30,18 @@ def date_to_year(df, split_ind):
     return [d.split('-')[0] for d in df['date'][split_ind]]
 
 def load_and_cache_data(
-#        raw_data_file='data/all_gs_comments_by_school.csv',
-#        prepared_data_file='data/all_gs_comments_by_school_test_scores.p',
-        raw_data_file='data/tiny_by_school_test_scores.csv',
-        prepared_data_file='data/tiny_by_school_test_scores.p',        
+        raw_data_file='data/all_gs_comments_by_school.csv',
+        prepared_data_file='data/all_gs_comments_by_school_%s.p',
+#        raw_data_file='data/tiny_by_school.csv',
+#        prepared_data_file='data/tiny_by_school_%s.p',        
         max_len=30,
 	outcome='mn_avg_eb',
-        train_frac = 0.8
+        train_frac = 0.9
     ):
-
+    
+    print ('Starting load data fcn ...')
+    prepared_data_file = prepared_data_file % outcome
+    print (prepared_data_file)
     if os.path.isfile(prepared_data_file):
 #    if False:
         with open(prepared_data_file, 'rb') as f:
@@ -58,13 +61,13 @@ def load_and_cache_data(
 
         data = {'train': list(df['review_text'][train_ind]), 'validation': list(df['review_text'][val_ind])}
         labels_progress = {'train': list(df['mn_grd_eb'][train_ind]), 'validation': list(df['mn_grd_eb'][val_ind])}
-        labels_test_score = {'train': list(df['mn_avg_eb'][train_ind]), 'validation': list(df['mn_avg_eb'][val_ind])}        
+        labels_test_score = {'train': list(df[outcome][train_ind]), 'validation': list(df[outcome][val_ind])}        
 
 	# pd.options.display.max_colwidth = 200
         # print (df['url'][train_ind], df['mn_avg_eb'][train_ind], df['review_text'][train_ind])
         # exit()
-        median_test_score = float(df['mn_avg_eb'][train_ind].median())
-        print("Median test score", median_test_score)
+        # median_test_score = float(df['mn_avg_eb'][train_ind].median())
+        # print("Median test score", median_test_score)
               
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         spacy_nlp = spacy.load('en_core_web_sm')  # For sentence segmentation
@@ -72,7 +75,8 @@ def load_and_cache_data(
         input_ids = {}   # split -> list of list of ids
         attention_masks = {}  # split -> list of attention masks
         sentences_per_school = {}  # split -> list of list of number of sentences
-    
+
+	print('Prepping data ...')    
         for d in data:
             input_ids[d] = []
             attention_masks[d] = []

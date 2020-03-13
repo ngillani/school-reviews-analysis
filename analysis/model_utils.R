@@ -2,7 +2,7 @@
 get_rmse <- function(fitted, residuals){
   RSS <- sum(residuals*residuals, na.rm=T)
   MSE <- RSS / sum(!is.na(fitted))
-  return (sqrt(MSE))
+  return (MSE)
 }
 
 # https://stackoverflow.com/questions/4285214/predict-lm-with-an-unknown-factor-level-in-test-data/4285335#4285335
@@ -59,7 +59,7 @@ remove_missing_levels <- function(model, test_data) {
 # https://gist.github.com/duttashi/a51c71acb7388c535e30b57854598e77
 cross_validate <- function(df, model){
 
-  orig_rmse <- get_rmse(model$residuals)
+  orig_rmse <- get_rmse(model$fitted.values, model$residuals)
   df_manip<-df[sample(nrow(df)),]
   folds <- cut(seq(1,nrow(df_manip)),breaks=10,labels=FALSE)
   all_rmse <- c()
@@ -69,11 +69,12 @@ cross_validate <- function(df, model){
     test_data <- df_manip[test_indexes, ]
     train_data <- df_manip[-test_indexes, ]
     trained_model <- update(model, data=train_data)
-    test_data <- remove_missing_levels(trained_model, test_data)
+    # test_data <- remove_missing_levels(trained_model, test_data)
     curr_pred <- predict(trained_model, test_data, na.action=na.pass)
-    all_rmse <- c(all_rmse, get_rmse(curr_pred, test_data$progress_rating))
+    all_rmse <- c(all_rmse, get_rmse(curr_pred, test_data$seda_growth))
   }
 
+  # return (all_rmse)
   sprintf("Original RMSE: %s\n", orig_rmse)
   sprintf("Cross-validated average RMSE on test data: %s\n", mean(all_rmse))
 }

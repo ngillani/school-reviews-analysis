@@ -584,7 +584,8 @@ def merge_comments_and_seda_and_other_post_processing(
 					'top_level', 'teachers', 'bullying', 'learning_differences', \
 					'leadership', 'character', 'homework', 'city', 'state_x', \
 					'city_and_state', 'med_hhinc2016', 'tract_id', 'meta_comment_id', \
-					'nonwhite_share2010', 'mn_avg_eb', 'mn_grd_eb', 'date', 'user_type']
+					'nonwhite_share2010', 'mn_avg_eb', 'mn_grd_eb', 'date', 'user_type', \
+					'perwht', 'perfrl', 'gifted_tot']
 
 	df = df[cols_to_keep]
 	print (len(df))
@@ -597,6 +598,48 @@ def merge_comments_and_seda_and_other_post_processing(
 	df.to_csv(output_file_2)
 
 
+def output_data_by_school(
+		input_file='data/all_gs_and_seda_with_comments.csv',
+		output_file='data/%s_gs_comments_by_school.csv',
+		stakeholder='Parent'
+	):
+	
+	print ('Loading data ...')
+	df = pd.read_csv(input_file)
+
+	print (len(df))
+	print ('Filtering data ...')
+	if stakeholder in ['Student', 'Parent', 'Community member', 'School leader', 'Teacher']:
+		df = df[df['user_type'] == stakeholder]
+	print (len(df))
+
+	print ('Sorting data ...')
+	df.sort_values(by='date', ascending=False, inplace=True)
+
+	print ('Grouping data ...')
+	df_g = df.groupby(['url']).agg({
+			'review_text': lambda x: '. '.join([str(i) for i in x]),
+			'mn_grd_eb': lambda x: np.mean(x),
+			'mn_avg_eb': lambda x: np.mean(x),
+			'top_level': lambda x: np.mean(x),
+	}).reset_index()
+
+	print ('Outputting data ...')
+	df_g.to_csv(output_file % stakeholder, index=False)
+	print (len(df_g))
+
+
+def output_tiny_data_by_school(
+		input_file='data/Parent_gs_comments_by_school.csv',
+		output_file='data/tiny_Parent_gs_comments_by_school.csv',
+		prop = 0.01
+	):
+
+	df = pd.read_csv(input_file)
+	df_s = df.sample(frac=prop, replace=False)
+	df_s.to_csv(output_file)
+
+
 if __name__ == "__main__":
 	# output_scores()
 	# output_reviews()
@@ -604,4 +647,7 @@ if __name__ == "__main__":
 	# output_data_for_siamese_bert()
 	# merge_gs_urls_with_seda()
 	# update_seda_with_missing_gs_urls()
-	merge_comments_and_seda_and_other_post_processing()
+	# merge_comments_and_seda_and_other_post_processing()
+	# output_data_by_school()
+	output_tiny_data_by_school()
+

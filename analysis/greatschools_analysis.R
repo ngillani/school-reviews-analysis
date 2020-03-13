@@ -79,7 +79,7 @@ all <- lm(has_seda_growth ~ household_income + percent_nonwhite, data=df_s_schoo
 summary(all)
 
 ### Q: What are the characteristics of schools that have more reviews?
-all <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school)
+all <- felm(num_reviews ~ seda_mean + seda_growth + household_income + percent_nonwhite | city_and_state, data=df_s_school)
 # all_lm <- lm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite + city_and_state, data=df_s_school)
 
 # By year
@@ -225,7 +225,7 @@ school_leaders <- lm(seda_mean ~ top_level, data=df_school_leaders_s)
 stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
 
 ## Adding in categorical ratings
-all <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
+all_t <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
 
 # By year
 post_2014_inclusive <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)

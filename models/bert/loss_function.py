@@ -21,8 +21,6 @@ class StraightUpLoss(nn.Module):
         super(StraightUpLoss, self).__init__()
         self.mse_loss = nn.MSELoss()
 
-    def compute_loss(self, predicted_t, actual_t, predicted_a, actual_a):
+    def compute_loss(self, predicted_t, actual_t):
         t_loss = self.mse_loss(predicted_t, actual_t)
-        a_loss = self.mse_loss(predicted_a, actual_a)
-
-        return t_loss, a_loss, t_loss
+        return t_loss

@@ -1,6 +1,7 @@
 import os
 import pickle
 
+import spacy
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from transformers import BertTokenizer
@@ -9,33 +10,45 @@ import pandas as pd
 import pdb
 import numpy as np
 
-def make_dataloader(data, batch_size, sampler=None):
+key_vals = {}   #  key -> set of values
+
+MAX_SENTENCES_PER_SCHOOL = 100
+
+def make_dataloader(data, batch_size, shuffle=True, sampler=None):
     data = TensorDataset(*data)
-    data_loader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+    data_loader = DataLoader(data, shuffle=shuffle, sampler=sampler, batch_size=batch_size)
     return data_loader
 
+def add_val(key_name, val):
+    if key_name not in key_vals:
+        key_vals[key_name] = {}
+    if val not in key_vals[key_name]:
+        key_vals[key_name][val] = len(key_vals[key_name])
+
+def date_to_year(df, split_ind):
+#    print(df['date'][split_ind][0:100])
+    return [d.split('-')[0] for d in df['date'][split_ind]]
+
 def load_and_cache_data(
-#        raw_data_file='data/all_gs_reviews_ratings.csv', 
-#        prepared_data_file='data/prepared_data_for_bert.p',
-        raw_data_file='data/tiny_gs_review_ratings.csv',
-        prepared_data_file='data/tiny_gs_review_ratings.p',
-        max_len=512,
+#        raw_data_file='data/all_gs_comments_by_school.csv',
+#        prepared_data_file='data/all_gs_comments_by_school_test_scores.p',
+        raw_data_file='data/tiny_by_school_test_scores.csv',
+        prepared_data_file='data/tiny_by_school_test_scores.p',        
+        max_len=30,
+	outcome='mn_avg_eb',
         train_frac = 0.8
     ):
 
     if os.path.isfile(prepared_data_file):
-    # if False:
+#    if False:
         with open(prepared_data_file, 'rb') as f:
-            input_ids, labels_t, labels_a, attention_masks = pickle.load(f)
-
-        print('data loaded!')
-
+            input_ids, labels_test_score, attention_masks, sentences_per_school = pickle.load(f)
+        print('data loaded from cache!')
     else:
 
         print('Loading data ...')
 
-        df = pd.read_csv(raw_data_file).dropna(subset=['progress_rating',
-                                                       'test_score_rating', 'review_text']).reset_index()
+        df = pd.read_csv(raw_data_file).dropna(subset=[outcome, 'review_text']).reset_index()
 
         all_ind = list(range(0, len(df)))
         np.random.shuffle(all_ind)
@@ -44,46 +57,64 @@ def load_and_cache_data(
         val_ind = all_ind[int(train_frac*len(all_ind)):]
 
         data = {'train': list(df['review_text'][train_ind]), 'validation': list(df['review_text'][val_ind])}
-        labels_t = {'train': list(df['progress_rating'][train_ind]), 'validation': list(df['progress_rating'][val_ind])}
-        labels_a = {'train': list(df['test_score_rating'][train_ind]), 'validation': list(df['test_score_rating'][val_ind])}
+        labels_progress = {'train': list(df['mn_grd_eb'][train_ind]), 'validation': list(df['mn_grd_eb'][val_ind])}
+        labels_test_score = {'train': list(df['mn_avg_eb'][train_ind]), 'validation': list(df['mn_avg_eb'][val_ind])}        
 
+	# pd.options.display.max_colwidth = 200
+        # print (df['url'][train_ind], df['mn_avg_eb'][train_ind], df['review_text'][train_ind])
+        # exit()
+        median_test_score = float(df['mn_avg_eb'][train_ind].median())
+        print("Median test score", median_test_score)
+              
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        tokenized_texts = {}  # split -> list of list of tokens
+        spacy_nlp = spacy.load('en_core_web_sm')  # For sentence segmentation
 
+        input_ids = {}   # split -> list of list of ids
+        attention_masks = {}  # split -> list of attention masks
+        sentences_per_school = {}  # split -> list of list of number of sentences
+    
         for d in data:
-            tokenized_texts[d] = []
-            for sent in data[d]:
+            input_ids[d] = []
+            attention_masks[d] = []
+            sentences_per_school[d] = []
+            for review in data[d]:
                 try:
-                    tokenized_texts[d].append(tokenizer.tokenize(sent.decode('utf-8')))
+                    text_sentences = spacy_nlp(review.decode('utf-8'))
+                    # Choose at most MAX_SENTENCES_PER_SCHOOL to include.
+                    # Reviews are sorted by recency in the input (newest first).
+                    token_id_vectors = []
+                    attention_mask_vectors = []
+                    for i, sentence in enumerate(text_sentences.sents):
+                        # Convert to bert IDs
+                        ids = tokenizer.encode(sentence.text, max_length=max_len)
+                        # Pad words if needed
+                        if len(ids) < max_len:
+                            ids += [0] * (max_len - len(ids))
+                        attention_mask = [float(id>0) for id in ids]
+                        token_id_vectors.append(ids)
+                        attention_mask_vectors.append(attention_mask)
+                        if i >= MAX_SENTENCES_PER_SCHOOL - 1:
+                            break
+                    # Pad sentences if needed
+                    while len(token_id_vectors) < MAX_SENTENCES_PER_SCHOOL:
+                        token_id_vectors.append([0] * max_len)
+                        attention_mask_vectors.append([0.0] * max_len)
+
+                    input_ids[d].append(token_id_vectors)
+                    attention_masks[d].append(attention_mask_vectors)
+                    sentences_per_school[d].append(float(len(token_id_vectors)))
                 except:
+                    raise
                     pdb.set_trace()
 
-        input_ids = {}   # split -> list of list of token ids
-        for d in tokenized_texts:
-            ids = [tokenizer.convert_tokens_to_ids(x) for x in tokenized_texts[d]]
-            for idx in range(len(ids)):
-                if len(ids[idx]) > max_len:
-                    ids[idx] = ids[idx][:max_len]
-                if len(ids[idx]) < max_len:
-                    ids[idx] = ids[idx] + [0]*(max_len-len(ids[idx]))
-            input_ids[d] = ids
-            #input_ids[d] = pad_sequences(ids, maxlen=max_len, dtype="long", truncating="pre", padding="pre")
-
-        attention_masks = {}
-        for d in input_ids:
-            masks = []
-            for seq in input_ids[d]:
-                seq_mask = [float(i>0) for i in seq]
-                masks.append(seq_mask)
-            attention_masks[d] = masks
-
         with open(prepared_data_file, 'wb') as f:
-            pickle.dump((input_ids, labels_t, labels_a, attention_masks), f)
+            pickle.dump((input_ids, labels_test_score, attention_masks, sentences_per_school), f)
             print('Data written to disk')
 
-
-    for dataset in [input_ids, labels_t, labels_a, attention_masks]:
+    # tensorize
+    for dataset in [labels_test_score, input_ids, attention_masks, sentences_per_school]:
         for d in dataset:
             dataset[d] = torch.tensor(dataset[d])
 
-    return input_ids, labels_t, labels_a, attention_masks
+# 800 * 50 * 30
+    return input_ids, labels_test_score, attention_masks, sentences_per_school

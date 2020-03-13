@@ -1,2 +1,3 @@
 nvidia-smi (to see which GPUs are being used)
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python models/bert.py start --loss 'adv' (to run the model)
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python models/bert_encoder.py

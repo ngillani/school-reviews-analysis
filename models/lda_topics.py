@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Creates an LDA topic model on the LVN training corpus
+Wrapper for creating LDA topic models from text data.
 """
 
 import json

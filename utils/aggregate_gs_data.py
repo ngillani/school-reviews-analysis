@@ -298,7 +298,7 @@ def add_in_geo_info(
 		tracts_file='data/school_tract_ids.csv',
 		covars_file='data/tract_covariates.csv',
 		opp_atlas_file='data/tract_outcomes_simple.csv',
-		output_file='data/all_gs_school_with_metadata.csv'
+		output_file='data/all_gs_reviews_ratings_with_metadata.csv'
 	):
 
 	import pandas as pd
@@ -306,7 +306,7 @@ def add_in_geo_info(
 	print ('Loading data ...')
 	df_base = pd.read_csv(input_file)
 	df_tracts = pd.read_csv(tracts_file)
-	df_atlas = pd.read_csv(opp_atlas_file)
+	# df_atlas = pd.read_csv(opp_atlas_file)
 	df_covars = pd.read_csv(covars_file)
 
 	print ('First, add in city and state into base ...')
@@ -323,115 +323,20 @@ def add_in_geo_info(
 	df_base['state'] = state
 	df_base['city_and_state'] = city_and_state
 
-	print ('Next, update atlas csv to have single tract_id field')
-	add_tract_id_field(df_atlas)
+	# print ('Next, update atlas csv to have single tract_id field')
+	# add_tract_id_field(df_atlas)
 
 	print ('Next, update covars csv to have single tract_id field')
 	add_tract_id_field(df_covars)
 
 	print ('Next, merge school tracts, tract covariates, and opportunity atlas ...')
-	df_school_tracts = pd.merge(df_base, df_tracts, how='inner', on='url')
-	df_school_tracts_covars = pd.merge(df_school_tracts, df_covars, how='inner', on='tract_id')
-	df_final = pd.merge(df_school_tracts_covars, df_atlas, how='inner', on='tract_id')
+	df_school_tracts = pd.merge(df_base, df_tracts, how='left', on='url')
+	df_school_tracts_covars = pd.merge(df_school_tracts, df_covars, how='left', on='tract_id')
+	# df_final = pd.merge(df_school_tracts_covars, df_atlas, how='left', on='tract_id')
+	df_final = df_school_tracts_covars
 
-	print (len(df_base), len(df_tracts), len(df_atlas), len(df_covars), len(df_school_tracts), len(df_final))
+	print (len(df_base), len(df_tracts), len(df_covars), len(df_school_tracts), len(df_final))
 	df_final.to_csv(output_file, index=False)
-
-
-def output_data_for_siamese_bert(
-		input_file='data/all_gs_school_with_metadata.csv',
-		output_file='data/school_reviews_for_siamese_bert.csv'
-	):
-	
-	# 99.9th percentile of number of reviews per school
-	MAX_NUM_REVIEWS = 107
-
-	print ('Loading data ...')
-	df = pd.read_csv(input_file)
-	schools_per_test_score = defaultdict(dict)
-	comments_per_school = defaultdict(list)
-
-	all_data = {
-		'school_1_url': [],
-		'school_1_progress': [],
-		'school_1_test': [],
-		'school_1_review_text': [],
-		'school_2_url': [],
-		'school_2_progress': [],
-		'school_2_test': [],
-		'school_2_review_text': [],
-		'school_1_higher_progress': []
-	}
-
-
-	print ('Aggregating school and comment info ...')
-	for i in range(0, len(df)):
-
-		print (i)
-		# if i == 10000: break
-
-		is_invalid_range = df['test_score_rating'][i] < 1 or df['test_score_rating'][i] > 10
-		ts_nan = np.isnan(float(df['test_score_rating'][i]))
-		ps_nan = np.isnan(float(df['progress_rating'][i]))
-
-		try:
-			no_text = np.isnan(df['review_text'][i]) or len(df['review_text'][i]) == 0
-		except Exception as e:
-			no_text = False
-
-		if is_invalid_range or ts_nan or ps_nan or no_text: continue
-
-		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]] = {}
-		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['progress_rating'] = df['progress_rating'][i]
-		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['test_score_rating'] = df['test_score_rating'][i]
-		schools_per_test_score[df['test_score_rating'][i]][df['url'][i]]['url'] = df['url'][i]
-
-		comments_per_school[df['url'][i]].append({
-			'review_text': df['review_text'][i],
-			'meta_comment_id': df['meta_comment_id'][i],
-			'date': df['date'][i]
-		})
-
-
-	print ('Generating pairings of schools ...')
-	all_pairs = []
-	for ts in schools_per_test_score:
-		schools_for_test_range = list(schools_per_test_score[ts].keys())
-		np.random.shuffle(schools_for_test_range)
-		for i in range(0, len(schools_for_test_range), 2):
-			print (ts, i, len(all_data['school_1_url']))
-			try:
-				s1 = schools_per_test_score[ts][schools_for_test_range[i]]
-				s2 = schools_per_test_score[ts][schools_for_test_range[i + 1]]
-				
-				s1_sorted_comments = sorted(comments_per_school[s1['url']], key=lambda x:x['date'], reverse=True)
-				s2_sorted_comments = sorted(comments_per_school[s2['url']], key=lambda x:x['date'], reverse=True)
-
-				for j in range(0, np.minimum(len(s1_sorted_comments), MAX_NUM_REVIEWS)):
-					c1 = s1_sorted_comments[j]
-					for k in range(0, np.minimum(len(s2_sorted_comments), MAX_NUM_REVIEWS)):
-						c2 = s2_sorted_comments[k]
-						all_data['school_1_url'].append(s1['url'])
-						all_data['school_1_progress'].append(s1['progress_rating'])
-						all_data['school_1_test'].append(s1['test_score_rating'])
-						all_data['school_1_review_text'].append(c1['review_text'])
-						all_data['school_2_url'].append(s2['url'])
-						all_data['school_2_progress'].append(s2['progress_rating'])
-						all_data['school_2_test'].append(s2['test_score_rating'])
-						all_data['school_2_review_text'].append(c2['review_text'])
-
-						if s1['progress_rating'] == s2['progress_rating']:
-							label = 2
-						else:
-							label = int(s1['progress_rating'] > s2['progress_rating'])
-						all_data['school_1_higher_progress'].append(label)
-
-			except Exception as e:
-				print (e)
-				continue
-
-	df_out = pd.DataFrame(data=all_data)
-	df_out.to_csv(output_file)
 
 
 def update_seda_school_name(x):
@@ -570,12 +475,17 @@ def merge_comments_and_seda_and_other_post_processing(
 
 	print ('Adding number of words per review')
 	num_words_per_review = []
+	num_zero = 0
 	for i in range(0, len(df)):
 		try:
 			num_words = len(df['review_text'][i].split(' '))
 			num_words_per_review.append(num_words)
 		except Exception as e:
 			num_words_per_review.append(0)
+			num_zero += 1
+
+	print ('num zero: ', num_zero)
+	# exit()
 	df['num_words'] = num_words_per_review
 
 	print ('Keeping only some subsets of the data')
@@ -585,7 +495,12 @@ def merge_comments_and_seda_and_other_post_processing(
 					'leadership', 'character', 'homework', 'city', 'state_x', \
 					'city_and_state', 'med_hhinc2016', 'tract_id', 'meta_comment_id', \
 					'nonwhite_share2010', 'mn_avg_eb', 'mn_grd_eb', 'date', 'user_type', \
-					'perwht', 'perfrl', 'gifted_tot']
+					'perwht', 'perfrl', 'gifted_tot', 'urbanicity', 'totenrl', 'lep', \
+					'disab_tot_idea', 'disab_tot', 'perind', 'perasn', 'perhsp', 'perblk',\
+					'perfl', 'perrl', 'mail_return_rate2010', 'traveltime15_2010', \
+					'poor_share2010', 'frac_coll_plus2010', 'jobs_total_5mi_2015',\
+					'jobs_highpay_5mi_2015', 'ann_avg_job_growth_2004_2013', \
+					'singleparent_share2010', 'popdensity2010']
 
 	df = df[cols_to_keep]
 	print (len(df))
@@ -598,9 +513,29 @@ def merge_comments_and_seda_and_other_post_processing(
 	df.to_csv(output_file_2)
 
 
+def output_data_by_stakeholder(
+		input_file='data/all_gs_and_seda_with_comments.csv',
+		output_file='data/%s_gs_comments_comment_level_with_covars.csv',
+		stakeholder='Parent'
+	):
+
+	print ('Loading data ...')
+	df = pd.read_csv(input_file)
+
+	print (len(df))
+	print ('Filtering data ...')
+	if stakeholder in ['Student', 'Parent', 'Community member', 'School leader', 'Teacher']:
+		df = df[df['user_type'] == stakeholder]
+	print (len(df))
+
+	print ('Sorting data ...')
+	df.sort_values(by='date', ascending=False, inplace=True)
+	df.to_csv(output_file % stakeholder, index=False)
+
+
 def output_data_by_school(
 		input_file='data/all_gs_and_seda_with_comments.csv',
-		output_file='data/%s_gs_comments_by_school.csv',
+		output_file='data/%s_gs_comments_by_school_with_covars.csv',
 		stakeholder='Parent'
 	):
 	
@@ -622,6 +557,91 @@ def output_data_by_school(
 			'mn_grd_eb': lambda x: np.mean(x),
 			'mn_avg_eb': lambda x: np.mean(x),
 			'top_level': lambda x: np.mean(x),
+			'perwht': lambda x: np.mean(x),
+			'perfrl': lambda x: np.mean(x),
+			'totenrl': lambda x: np.mean(x),
+			'gifted_tot': lambda x: np.mean(x),
+			'lep': lambda x: np.mean(x),
+			'disab_tot_idea': lambda x: np.mean(x),
+			'disab_tot': lambda x: np.mean(x),
+			'perind': lambda x: np.mean(x),
+			'perasn': lambda x: np.mean(x),
+			'perhsp': lambda x: np.mean(x),
+			'perblk': lambda x: np.mean(x),
+			'perfl': lambda x: np.mean(x),
+			'perrl': lambda x: np.mean(x),
+			'nonwhite_share2010': lambda x: np.mean(x),
+			'med_hhinc2016': lambda x: np.mean(x),
+			'mail_return_rate2010': lambda x: np.mean(x),
+			'traveltime15_2010': lambda x: np.mean(x),
+			'poor_share2010': lambda x: np.mean(x),
+			'frac_coll_plus2010': lambda x: np.mean(x),
+			'jobs_total_5mi_2015': lambda x: np.mean(x),
+			'jobs_highpay_5mi_2015': lambda x: np.mean(x),
+			'ann_avg_job_growth_2004_2013': lambda x: np.mean(x),
+			'singleparent_share2010': lambda x: np.mean(x),
+			'popdensity2010': lambda x: np.mean(x),
+			'urbanicity': lambda x: x
+	}).reset_index()
+
+	print ('Outputting data ...')
+	df_g.to_csv(output_file % stakeholder, index=False)
+	print (len(df_g))
+
+def output_ratings_by_school_no_comments(
+		input_file='data/all_gs_and_seda_no_comments.csv',
+		output_file='data/%s_gs_ratings_by_school_with_covars.csv',
+		stakeholder='Parent'
+	):
+	
+	print ('Loading data ...')
+	df = pd.read_csv(input_file)
+
+	print (len(df))
+	print ('Filtering data ...')
+	if stakeholder in ['Student', 'Parent', 'Community member', 'School leader', 'Teacher']:
+		df = df[df['user_type'] == stakeholder]
+	print (len(df))
+
+	print ('Sorting data ...')
+	df.sort_values(by='date', ascending=False, inplace=True)
+
+	print ('Grouping data ...')
+	df_g = df.groupby(['url']).agg({
+			'mn_grd_eb': lambda x: np.mean(x),
+			'mn_avg_eb': lambda x: np.mean(x),
+			'top_level': lambda x: np.nanmean(x),
+			'homework': lambda x: np.nanmean(x),
+			'teachers': lambda x: np.nanmean(x),
+			'learning_differences': lambda x: np.nanmean(x),
+			'leadership': lambda x: np.nanmean(x),
+			'bullying': lambda x: np.nanmean(x),
+			'character': lambda x: np.nanmean(x),
+			'perwht': lambda x: np.mean(x),
+			'perfrl': lambda x: np.mean(x),
+			'totenrl': lambda x: np.mean(x),
+			'gifted_tot': lambda x: np.mean(x),
+			'lep': lambda x: np.mean(x),
+			'disab_tot_idea': lambda x: np.mean(x),
+			'disab_tot': lambda x: np.mean(x),
+			'perind': lambda x: np.mean(x),
+			'perasn': lambda x: np.mean(x),
+			'perhsp': lambda x: np.mean(x),
+			'perblk': lambda x: np.mean(x),
+			'perfl': lambda x: np.mean(x),
+			'perrl': lambda x: np.mean(x),
+			'nonwhite_share2010': lambda x: np.mean(x),
+			'med_hhinc2016': lambda x: np.mean(x),
+			'mail_return_rate2010': lambda x: np.mean(x),
+			'traveltime15_2010': lambda x: np.mean(x),
+			'poor_share2010': lambda x: np.mean(x),
+			'frac_coll_plus2010': lambda x: np.mean(x),
+			'jobs_total_5mi_2015': lambda x: np.mean(x),
+			'jobs_highpay_5mi_2015': lambda x: np.mean(x),
+			'ann_avg_job_growth_2004_2013': lambda x: np.mean(x),
+			'singleparent_share2010': lambda x: np.mean(x),
+			'popdensity2010': lambda x: np.mean(x),
+			'urbanicity': lambda x: x
 	}).reset_index()
 
 	print ('Outputting data ...')
@@ -630,9 +650,9 @@ def output_data_by_school(
 
 
 def output_tiny_data_by_school(
-		input_file='data/Parent_gs_comments_by_school.csv',
-		output_file='data/tiny_Parent_gs_comments_by_school.csv',
-		prop = 0.01
+		input_file='data/Parent_gs_comments_by_school_with_covars.csv',
+		output_file='data/tiny_Parent_gs_comments_by_school_with_covars.csv',
+		prop=0.01
 	):
 
 	df = pd.read_csv(input_file)
@@ -640,14 +660,55 @@ def output_tiny_data_by_school(
 	df_s.to_csv(output_file)
 
 
+def process_data_for_map(
+		input_file='data/df_boston_no_reviews.csv',
+		address_file='data/all_gs_address_info.json',
+		names_file='data/urls_to_name.json',
+		output_file='data/boston_gs_no_reviews_for_map.csv'
+	):
+
+	df = pd.read_csv(input_file)
+	addresses = read_dict(address_file)
+	all_addr_data = {
+		'url': [],
+		'address': []
+	}
+	for u in addresses:
+		all_addr_data['url'].append(u)
+		all_addr_data['address'].append(addresses[u]['school_address'])
+	
+	df_addresses = pd.DataFrame(data=all_addr_data)
+
+	names = read_dict(names_file)
+	all_name_data = {
+		'url': [],
+		'name': []
+	}
+	for u in names:
+		all_name_data['url'].append(u)
+		all_name_data['name'].append(names[u])
+	
+	df_names = pd.DataFrame(data=all_name_data)
+
+	df = pd.merge(df, df_addresses, how='left', on='url')
+	df = pd.merge(df, df_names, how='left', on='url')
+
+	cols_to_keep = ['address', 'name']
+	df = df[cols_to_keep]
+	print (len(df))
+	df.to_csv(output_file)
+
+
 if __name__ == "__main__":
 	# output_scores()
 	# output_reviews()
 	# add_in_geo_info()
-	# output_data_for_siamese_bert()
 	# merge_gs_urls_with_seda()
 	# update_seda_with_missing_gs_urls()
 	# merge_comments_and_seda_and_other_post_processing()
+	output_data_by_stakeholder()
 	# output_data_by_school()
-	output_tiny_data_by_school()
+	# output_ratings_by_school_no_comments()
+	# output_tiny_data_by_school()
+	# process_data_for_map()
 

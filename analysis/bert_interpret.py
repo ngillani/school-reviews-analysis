@@ -10,12 +10,13 @@ from collections import defaultdict, Counter, OrderedDict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # from transformers import BertTokenizer, BertModel, BertConfig
 
 import sys
 
-from utils.header import *
+# from utils.header import *
 
 BASE_DIR = '/mnt/jessica/ngillani/school_ratings_2.0/'
 PREPARED_DATA_FILE_mn_avg_eb = '{}data/Parent_gs_comments_by_school_mn_avg_eb_1.7682657723517046.p'.format(BASE_DIR)
@@ -33,9 +34,9 @@ class AdaptedMeanBertForSequenceRegression(nn.Module):
 		self.config = config
 		self.bert = BertModel.from_pretrained('bert-base-uncased', output_attentions=config.output_attentions)
 		for name, param in self.bert.named_parameters():
-				if 'layer.11' not in name and 'pooler' not in name:
-						param.requires_grad=False
-				# param.requires_grad = False
+			if 'layer.11' not in name and 'pooler' not in name:
+					param.requires_grad=False
+			# param.requires_grad = False
 
 		self.fc1 = nn.Linear(config.hidden_size, hid_dim)
 		self.relu = torch.nn.ReLU()
@@ -59,9 +60,9 @@ class AdaptedRobertForSequenceRegression(nn.Module):
         self.config = config
         self.bert = BertModel.from_pretrained('bert-base-uncased', output_attentions=config.output_attentions)
         for name, param in self.bert.named_parameters():
-                if 'layer.11' not in name and 'pooler' not in name:
-                        param.requires_grad=False
-                # param.requires_grad = False
+            if 'layer.11' not in name and 'pooler' not in name:
+                    param.requires_grad=False
+            # param.requires_grad = False
 
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.fc1 = nn.Linear(recurrent_hidden_size, recurrent_hidden_size)
@@ -162,13 +163,21 @@ def get_best_model(outcome):
 
 
 def compute_and_output_attributions(
-		outcome='mn_avg_eb'
+		outcome='top_level'
 	):
 
 	import pickle
 
 	print ('Loading data ...')
-	with open(PREPARED_DATA_FILE + '_{}'.format(outcome), 'rb') as f:
+
+	if outcome == 'top_level':
+		prepared_data_file = PREPARED_DATA_FILE_top_level
+	elif outcome == 'mn_avg_eb':
+		prepared_data_file = PREPARED_DATA_FILE_mn_avg_eb
+	else:
+		prepared_data_file = PREPARED_DATA_FILE_mn_grd_eb
+
+	with open(prepared_data_file, 'rb') as f:
 		 all_input_ids, labels_test_score, attention_masks, sentences_per_school = pickle.load(f, encoding='latin1')
 
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -223,8 +232,16 @@ def compute_and_output_attributions(
 			input_ids = torch.LongTensor([all_input_ids[d][i]]).squeeze(0).to(device)
 			label_t = torch.tensor([labels_test_score[d][i]]).to(device)
 			input_mask = torch.tensor([attention_masks[d][i]]).squeeze(0).to(device)
-			
-			pred = model(input_ids, attention_mask=input_mask)
+			sentences_per_school = torch.tensor([sentences_per_school[d][i]]).squeeze(0).to(device)
+
+			print ('sent per school size: ', sentences_per_school.size())
+
+			if outcome == 'top_level':
+				additional_forward_args = (input_mask, sentences_per_school, 0)
+				pred = model(input_ids, sentences_per_school, attention_mask=input_mask)
+			else:
+				additional_forward_args = (input_mask, 0)
+				pred = model(input_ids, attention_mask=input_mask)				
 			mse = (pred.item() - label_t.item()) ** 2
 			
 			# Generate reference sequence for integrated gradients
@@ -237,7 +254,7 @@ def compute_and_output_attributions(
 			attributions, conv_delta = lig.attribute(
 				inputs=input_ids, 
 				baselines=ref_input_ids,
-				additional_forward_args=(input_mask, 0), 
+				additional_forward_args=additional_forward_args, 
 				internal_batch_size=internal_batch_size,
 				n_steps=n_steps,
 				return_convergence_delta=True)

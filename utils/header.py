@@ -2,6 +2,7 @@
 # import matplotlib as mpl
 from datetime import datetime
 from collections import Counter, defaultdict
+from urllib.request import urlopen
 from copy import deepcopy
 # from graph_tool.all import *
 from scipy import sparse

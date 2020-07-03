@@ -58,13 +58,13 @@ def make_word_lists_same_length(top_features_per_outcome):
 
 
 def aggregate_cval_results(
-		data_dir='data/model_outputs/cval_%s/%s/%s/*.sav',
-		outcomes = ['mn_avg_eb', 'mn_grd_eb', 'top_level'],
+		data_dir='data/model_outputs/parent_comments/cval_%s/%s/%s/*.json',
+		outcomes = ['mn_avg_eb'],
 		model='Ridge',
-		embedding_type='bert_full',
+		embedding_type='tfidf',
 		N=1000,
-		output_file_cval='data/cval_scores/cross_validated_%s_%s_performance_per_outcome.csv',
-		output_file_nlp='data/nlp_outputs/nlp_%s_%s_cross_validated_outputs.csv'
+		output_file_cval='data/cval_scores/parent_comments/cross_validated_%s_%s_performance_per_outcome.csv',
+		output_file_nlp='data/nlp_outputs/parent_comments/nlp_%s_%s_cross_validated_outputs.csv'
 	):
 
 	top_features_per_outcome = {}
@@ -87,13 +87,15 @@ def aggregate_cval_results(
 		curr_dir = data_dir % (embedding_type, model, o)
 		results_per_run = defaultdict(dict)
 		for f in glob.glob(curr_dir):
+			print (f)
 			run = f.split('run_')[1].split('.json')[0]
 			model_perf[o]['train'].append(float(f.split('train_mse_')[1].split('_')[0]))
 			model_perf[o]['test'].append(float(f.split('test_mse_')[1].split('_')[0]))
 
 			if 'bert' not in embedding_type:
 				word_imp = read_dict(f)
-				results_per_run[run] = dict(sorted(standardize_coefficients(word_imp).items(), key=lambda x:np.abs(x[1]), reverse=True)[:N])
+				# results_per_run[run] = dict(sorted(standardize_coefficients(word_imp).items(), key=lambda x:np.abs(x[1]), reverse=True)[:N])
+				results_per_run[run] = dict(sorted(standardize_coefficients(word_imp).items(), key=lambda x:np.abs(x[1]), reverse=True))
 
 		all_model_perf['model'].append(model)
 		all_model_perf['embedding_type'].append(embedding_type)
@@ -269,5 +271,5 @@ def compute_linguistic_bias(
 
 
 if __name__ == "__main__":
-	# aggregate_cval_results()
-	compute_linguistic_bias()
+	aggregate_cval_results()
+	# compute_linguistic_bias()

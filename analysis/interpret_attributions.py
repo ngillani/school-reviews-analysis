@@ -11,16 +11,33 @@ import spacy
 
 nlp = spacy.load("en_core_web_sm")
 
+# # mn_avg_eb
+# all_phrases = [
+# 	['private school', 'private schools'],
+# 	['the curriculum', 'curriculum'],
+# 	['test scores', 'the test scores'],
+# 	['this school', 'school', 'the school'],
+# ]
+
+# # perwht
+# all_phrases = [
+# 	['we','us'],
+# 	['communication', 'the communication', 'contact'],
+# 	['the teachers', 'teachers', 'the teacher'],
+# 	['the neighborhood'],
+# ]
+
+# perfrl
 all_phrases = [
-	['academics', 'the academics'],
-	['an excellent school', 'an amazing school', 'wonderful school'],
-	['test scores', 'the test scores'],
-	['this school', 'school', 'the school'],
+	['the staff', 'staff', 'her staff'],
+	['the gifted program'],
+	['the pta','the pto','pta'],
+	['disabilities', 'disability', 'autism'],
 ]
 
 def compute_idf_scores_for_phrases(
 		data_file='data/Parent_gs_comments_comment_level_with_covars.csv',
-		outcome='mn_avg_eb',
+		outcome='perfrl',
 		output_file='data/attributions/{}_idf_analysis.csv'
 	):
 	
@@ -78,24 +95,29 @@ def output_representative_sentences_per_phrase(
 		max_ngram=-1,
 		outcome='perfrl',
 		output_file='data/attributions/{}_representative_sentences_for_phrases.csv'
+		# output_file='data/attributions/{}_all_nounphrases_representative_sentences.csv'
 	):
 
 	from scipy.spatial.distance import cdist
 	from sentence_transformers import SentenceTransformer
-	encoder = SentenceTransformer('distilbert-base-nli-mean-tokens')
+	encoder = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
 
 	all_sents = read_dict(attributions_file.format(model_key.format(outcome), min_ngram, max_ngram))
+	
+	# num_sent_to_save = 5
+	# all_phrases = [list(all_sents.keys())]
 
 	representative_sentence_per_phrase = {}
 	for phrases in all_phrases:
-		for p in phrases:
+		for i, p in enumerate(phrases):
 			curr_phrase_sents = np.array([s[1] for s in all_sents[p]])
 
-			print ('Encoding sents for "{}" '.format(p))
+			print ('{} Encoding sents for "{}" '.format(i, p))
 			encoded = encoder.encode(curr_phrase_sents)
 			mean_vec = np.mean(encoded, axis=0)
 			
 			similarities = cdist([mean_vec], encoded, metric='cosine')[0]
+			# representative_sentence_per_phrase[p] = curr_phrase_sents[similarities.argsort()[0:num_sent_to_save]].tolist()
 			representative_sentence_per_phrase[p] = curr_phrase_sents[similarities.argsort()[0]]
 			print (representative_sentence_per_phrase[p])
 	
@@ -392,7 +414,7 @@ def load_and_encode_ngrams(
 
 
 def cluster_attribution_ngrams(
-		model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perwht',
+		model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl',
 		# model_key='adv_dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
 		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
 		# model_key='adv_terms_perfrl_perwht-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
@@ -409,7 +431,7 @@ def cluster_attribution_ngrams(
 	print ('Loading encoder data ...')
 	from sentence_transformers import SentenceTransformer
 	# encoder = SentenceTransformer('bert-base-nli-stsb-mean-tokens')
-	encoder = SentenceTransformer('distilbert-base-nli-mean-tokens')
+	encoder = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
 
 	print ('Loading and encoding ngram data ...')
 	ngrams, attr_vals, encoded_ngrams = load_and_encode_ngrams(encoder, model_key=model_key, min_ngram=min_ngram, max_ngram=max_ngram, sd_threshold=sd_threshold)
@@ -542,7 +564,7 @@ def compute_linguistic_bias(
 	from sentence_transformers import SentenceTransformer
 	# encoder = SentenceTransformer('bert-base-nli-stsb-mean-tokens')/
 	# encoder = SentenceTransformer('roberta-base-nli-stsb-mean-tokens')
-	encoder = SentenceTransformer('distilbert-base-nli-mean-tokens')
+	encoder = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
 
 	print ('Loading and encoding ngram data model 1 ...')
 	ngrams1, attr_vals1, encoded_ngrams1 = load_and_encode_ngrams(encoder, model_key=model_1_key, min_ngram=min_ngram, max_ngram=max_ngram, sd_threshold=sd_threshold)
@@ -583,9 +605,9 @@ def compute_linguistic_bias(
 
 
 if __name__ == "__main__":
-	# compute_idf_scores_for_phrases()
-	# compare_attributions_to_tfidf_regression_weights()
+	compute_idf_scores_for_phrases()
 	output_representative_sentences_per_phrase()
+	# compare_attributions_to_tfidf_regression_weights()
     # analyze_attributions()
     # output_ngram_scatter_plot_vals()
     # cluster_attribution_ngrams()

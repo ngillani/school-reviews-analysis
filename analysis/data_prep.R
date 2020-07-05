@@ -90,6 +90,7 @@ standardize_df_school <- function(df_curr_g){
       perhsp = (perhsp - mean(perhsp, na.rm=T)) / sd(perhsp, na.rm=T),
       perblk = (perblk - mean(perblk, na.rm=T)) / sd(perblk, na.rm=T),
       share_singleparent = (share_singleparent - mean(share_singleparent, na.rm=T)) / sd(share_singleparent, na.rm=T),
+      totenrl_orig = totenrl,
       totenrl = (totenrl - mean(totenrl, na.rm=T)) / sd(totenrl, na.rm=T),
       share_collegeplus = (share_collegeplus - mean(share_collegeplus, na.rm=T)) / sd(share_collegeplus, na.rm=T),
       mail_returnrate = (mail_returnrate - mean(mail_returnrate, na.rm=T)) / sd(mail_returnrate, na.rm=T),

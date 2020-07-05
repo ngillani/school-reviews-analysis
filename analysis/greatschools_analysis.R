@@ -7,6 +7,7 @@ library(ggplot2)
 library(lfe)
 library(corrplot)
 library(jtools)
+library(weights)
 
 source("data_prep.R")
 
@@ -86,27 +87,34 @@ summary(all)
 df_for_balance <- df_s_school
 df_for_balance$has_reviews <- df_s_school$num_reviews > 0
 df_for_balance$log_num_reviews_orig <- df_s_school$log_num_reviews_orig
-df_for_balance$greatschools_parent_five_star <- df_s_school$top_level
-df_for_balance$greatschools_overall <- df_s_school$overall_rating
-df_for_balance$greatschools_test_score <- df_s_school$test_score_rating
-df_for_balance$greatschools_progress_score <- df_s_school$progress_rating
-df_for_balance$stanford_test_score <- df_s_school$seda_mean
-df_for_balance$stanford_progress_score <- df_s_school$seda_growth
+df_for_balance$gs_parent_five_star <- df_s_school$top_level
+df_for_balance$gs_overall <- df_s_school$overall_rating
+df_for_balance$gs_test_score <- df_s_school$test_score_rating
+df_for_balance$gs_progress_score <- df_s_school$progress_rating
+df_for_balance$seda_test_score <- df_s_school$seda_mean
+df_for_balance$seda_progress_score <- df_s_school$seda_growth
 df_for_balance$percent_free_reduced_lunch <- df_s_school$perfrl
 df_for_balance$percent_white <- df_s_school$perwht
 df_for_balance$percent_black <- df_s_school$perblk
 df_for_balance$percent_hispanic <- df_s_school$perhsp
 df_for_balance$total_enrollment <- df_s_school$totenrl
+df_for_balance$total_enrollment_orig <- df_s_school$totenrl_orig
 # all_lm <- lm(log_num_reviews_orig ~ five_star + test_score + progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
 # all_lm <- glm(has_reviews ~ share_collegeplus + percent_nonwhite + share_singleparent + household_income, data=df_for_balance)
-all_lm <- glm.nb(num_reviews_orig ~ stanford_test_score + stanford_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
+all_lm <- glm.nb(num_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
+# all_lm <- glm(num_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, family="poisson", data=df_for_balance)
 summ(all_lm)
-plot_summs(all_lm)
+plot_summs(all_lm, colors="Qual1", exp=T, coefs=c("SEDA Test Score" = "seda_test_score", "SEDA Progress Score" = "seda_progress_score", "% Free/Reduced Lunch" = "percent_free_reduced_lunch", "% White" = "percent_white", "% Single-Parent Households (in Census tract)" = "share_singleparent", "% Bachelor's or Higher (in Census tract)" = "share_collegeplus", "Total Enrollment" = "total_enrollment", "Rural" = "urbanicityRural", "Suburb" = "urbanicitySuburb", "Small town" = "urbanicityTown"))
 
 # Correlation plot of different vars
-cols <- c('greatschools_parent_five_star', 'greatschools_overall', 'greatschools_test_score', 'greatschools_progress_score', 'stanford_test_score', 'stanford_progress_score', 'percent_free_reduced_lunch', 'percent_white')
-col<- colorRampPalette(c("red", "white", "darkgreen"))(20)
-gs_and_seda_mat <- corrplot(cor(df_for_balance[cols], use="complete.obs"), method="number", type="upper", col=col, tl.col="black")
+cols <- c('gs_overall', 'gs_test_score', 'gs_progress_score', 'seda_test_score', 'seda_progress_score', 'percent_free_reduced_lunch', 'percent_white')
+colors <- colorRampPalette(c("red", "white", "darkgreen"))(20)
+# M <- cor(df_for_balance[cols], use="complete.obs")
+M <- wtd.cor(df_for_balance[cols], weight=abs(df_for_balance$total_enrollment_orig))$cor
+labels <- c("GS Overall", "GS Test Score", "GS Progress Score", "SEDA Test Score", "SEDA Progress Score", "% Free/Reduced Lunch", "% White")
+colnames(M) <- labels
+rownames(M) <- labels
+gs_and_seda_mat <- corrplot(M, method="number", type="upper", col=colors, tl.col="black")
 
 # By year
 post_2014_inclusive <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2014_onwards)
@@ -343,41 +351,49 @@ bert_df <- data.frame(outcome=c("Test scores", "Progress scores"),
                  performance=c(41.5, 4.4))
 
 ggplot(data=bert_df, aes(x=outcome, y=performance)) +
-  geom_bar(stat="identity", fill="steelblue")+
-  geom_text(aes(label=performance), vjust=-0.3, size=3.5)+
-  ggtitle('% improvement over random predictor for each outcome')
-  theme_minimal()
+  geom_bar(stat="identity", width=0.5, fill="gray30", outline="black")+
+  # geom_text(aes(label=c("41.5%", "4.4%")), hjust=-0.2, size=3.5)+
+  # ggtitle('% improvement of mean squared error (MSE) over random predictor') + 
+  coord_flip() + 
+  theme_void()
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
 
 
 ################## Visualize attributions ##################
 
-df_attr <- read.csv('../data/attributions/dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb_clustered_ngrams_min_-1_max_-1.csv', na.strings=c("", "NA"))
+df_attr <- read.csv('../data/attributions/dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl_clustered_ngrams_min_-1_max_-1.csv', na.strings=c("", "NA"))
 
 df_top <- df_attr %>%
-  mutate(contribution = weighted_mean_attribution) %>%
+  mutate(contribution = weighted_mean_attribution, mean_sd_ratio = abs(weighted_mean_attribution / weighted_sd_attribution)) %>%
   arrange(desc(abs(contribution))) %>%
   head(50) %>%
-  mutate(word2 = reorder(trimmed_ngrams, contribution)) 
+  mutate(word2 = reorder(trimmed_ngrams, contribution))
 
-df_attr_updated %>%
+df_top %>%
   ggplot(aes(word2, weighted_mean_attribution, fill = weighted_mean_attribution > 0)) +
   geom_col(show.legend = FALSE) +
   geom_errorbar(aes(ymin=weighted_mean_attribution-weighted_sd_attribution, ymax=weighted_mean_attribution+weighted_sd_attribution)) +
   coord_flip(expand=TRUE) +
-  xlab("Noun phrase clusters") +
-  ylab("Aggregated attribution") +
-  theme(axis.text.y = element_text(size = 12, angle = 0)) + 
+  xlab("") +
+  ylab("") +
+  theme(axis.text.y = element_text(size = 13, angle = 0)) + 
   ggtitle("")
 
+df_curr <- df_top %>% filter(contribution < 0, !is.na(mean_sd_ratio))
+df_curr <- df_curr[order(df_curr$mean_sd_ratio),]
+df_curr
 
 ################## Visualize idf plot ##################
-idf_df <- read.csv('../data/attributions/mn_avg_eb_idf_analysis.csv')
-idf_df <- subset(idf_df, select = -c(phrases, X) )
+orig_idf_df <- read.csv('../data/attributions/perfrl_idf_analysis.csv')
+curr_ind <- 4
+idf_df <- subset(orig_idf_df, select = -c(phrases, X) )
 idf_df_to_plot <- data.frame(percentile=c(20, 40, 60, 80, 100),
-                      idf_score=c(idf_df[4,]$X20.0_idf, idf_df[4,]$X40.0_idf, idf_df[4,]$X60.0_idf, idf_df[4,]$X80.0_idf, idf_df[4,]$X100.0_idf))
+                      idf_score=c(idf_df[curr_ind,]$X20.0_idf, idf_df[curr_ind,]$X40.0_idf, idf_df[curr_ind,]$X60.0_idf, idf_df[curr_ind,]$X80.0_idf, idf_df[curr_ind,]$X100.0_idf))
 
 ggplot(data=idf_df_to_plot, aes(x=percentile, y=idf_score)) +
-  geom_bar(stat="identity", fill="steelblue")
+  geom_bar(stat="identity", fill="gray30") + 
+  theme_void()
 
 ################## Scatterplot for attributions ##################
 dev.off()

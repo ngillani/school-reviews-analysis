@@ -6,11 +6,12 @@
 '''
 
 from utils.header import *
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
+from sklearn.svm import SVR
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from gensim.parsing.preprocessing import remove_stopwords
@@ -99,63 +100,22 @@ def load_bert_embeddings(
 	return np.array(transformed_x), np.array(all_y)
 
 
-def tfidf_vectorize_descriptions(
-		df_g,
-		outcome='mn_avg_eb',
-		n_gram_end=1,
-	):
-	
-	# # Group data by school
-	# df_g = df.groupby(['url']).agg({
-	# 		'review_text': lambda x: ','.join([str(i) for i in x]),
-	# 		outcome: lambda x: np.mean(x)
-	# 	}).reset_index()
-
-	all_x = []
-	all_y = []
-	count = 0
-	inds = list(range(0, len(df_g)))
-	# np.random.seed(5)
-	np.random.shuffle(inds)
-	for i in inds:
-
-		if not df_g[outcome][i] or np.isnan(float(df_g[outcome][i])): continue
-
-		try:
-			review_array = simple_preprocess(remove_stopwords(df_g['review_text'][i]))
-			all_x.append(' '.join(review_array))
-			all_y.append(float(df_g[outcome][i]))
-		except Exception as e:
-			continue
-
-	print (len(all_y))
-	print ('Vectorizing input ...')
-	all_x = np.array(all_x)
-	vectorizer = TfidfVectorizer(ngram_range=(1,n_gram_end), strip_accents='ascii', min_df=20)
-	transformed_x = vectorizer.fit_transform(all_x)
-	all_y = np.array(all_y)
-
-	del df_g
-
-	return transformed_x, vectorizer, all_x, all_y
-
-
 def get_user_ratings_as_features(
 		df_g,
 		outcome='mn_avg_eb',
+		ratings_categories=['top_level', 'homework', 'leadership', 'bullying', 'character', 'learning_differences', 'teachers']
 	):
 	
-	df_g = df_g.dropna(subset=[outcome, 'top_level', 'homework', 'leadership', 'bullying', 'character', 'learning_differences', 'teachers']).reset_index()
+	df_g = df_g.dropna(subset=[outcome].extend(ratings_categories)).reset_index()
 
 	all_x = []
 	all_y = []
 	count = 0
 	inds = list(range(0, len(df_g)))
-	# np.random.seed(5)
 	np.random.shuffle(inds)
 	for i in inds:
 		ratings = []
-		for f in ['top_level', 'homework', 'leadership', 'bullying', 'character', 'learning_differences', 'teachers']:
+		for f in ratings_categories:
 			ratings.append(float(df_g[f][i]))
 		all_x.append(ratings)
 		all_y.append(float(df_g[outcome][i]))
@@ -200,15 +160,19 @@ def train_and_test_ratings_classifier(
 	print ('Loading main dataframe ...')
 	df = pd.read_csv(data_file)
 	models = [
-		# Ridge,
+		LinearRegression,
+		RandomForestRegressor,
+		DecisionTreeRegressor,
+		MLPRegressor
+		# ElasticNet,
 		# LinearRegression,
 		# MLPRegressor,
 		# Lasso,
 		# DecisionTreeRegressor
-		RandomForestRegressor
 	]
 	for outcome in outcomes:
 
+		df[outcome] = (df[outcome] - np.mean(df[outcome])) / np.std(df[outcome])
 		all_x, all_y = get_user_ratings_as_features(df, outcome=outcome)
 
 		print (all_x.shape)
@@ -236,68 +200,120 @@ def train_and_test_ratings_classifier(
 				model = r()
 				regressor_class = model.__class__.__name__
 
-				print ('Training {} model ...'.format(regressor_class))
+				# print ('Training {} model ...'.format(regressor_class))
 				model.fit(all_x[train_inds,:], all_y[train_inds])
 
-				print ('Evaluating {} model ...'.format(regressor_class))
+				# print ('Evaluating {} model ...'.format(regressor_class))
 				preds_train = model.predict(all_x[train_inds,:])
 				train_mse = mean_squared_error(all_y[train_inds], preds_train)
-				print ('training MSE: ', train_mse)
+				# print ('training MSE: ', train_mse)
 				all_train_losses.append(train_mse)
 
 				preds_test = model.predict(all_x[test_inds,:])
 				test_mse = mean_squared_error(all_y[test_inds], preds_test)
-				print ('test MSE: ', test_mse)
+				# print ('test MSE: ', test_mse)
 				all_test_losses.append(test_mse)
 
 				outcome_var = np.std(all_y)**2
-				print ('variance of outcome: ', outcome_var)
+				# print ('variance of outcome: ', outcome_var)
 
 				# curr_output_dir = output_dir % (regressor_class, outcome)
 				# if not os.path.exists(curr_output_dir):
 				# 	os.makedirs(curr_output_dir)
 
-			print ('mean and std of train losses: %s, %s' % (np.mean(all_train_losses), np.std(all_train_losses)))
-			print ('mean and std of test losses: %s, %s' % (np.mean(all_test_losses), np.std(all_test_losses)))
+			print ('mean and std of train losses for outcome {}, model {}: {}, {}'.format(outcome, regressor_class, np.mean(all_train_losses), np.std(all_train_losses)))
+			print ('mean and std of test losses for outcome {}, model {}: {}, {}'.format(outcome, regressor_class, np.mean(all_test_losses), np.std(all_test_losses)))
 
 		del all_x, all_y
+
+
+def tfidf_vectorize_descriptions(
+		df_g,
+		outcome='mn_avg_eb',
+		n_gram_end=1,
+	):
+
+	all_x = []
+	all_y = []
+	school_urls = []
+
+	for i in range(0, len(df_g)):
+
+		try:
+			# review_array = simple_preprocess(remove_stopwords(df_g['review_text'][i]))
+			review_array = simple_preprocess(df_g['review_text'][i])
+			all_x.append(' '.join(review_array))
+			all_y.append(float(df_g[outcome][i]))
+			school_urls.append(df_g['url'][i])
+		except Exception as e:
+			continue
+
+	print (len(all_y))
+	print ('TFIDF vectorizing input ...')
+	all_x = np.array(all_x)
+	vectorizer = TfidfVectorizer(ngram_range=(1,n_gram_end), strip_accents='ascii', min_df=50)
+	print ('Count vectorizing input ...')
+	count_vectorizer = CountVectorizer(ngram_range=(1,n_gram_end), strip_accents='ascii', min_df=50, binary=True)
+	# vectorizer = TfidfVectorizer(ngram_range=(1,n_gram_end), strip_accents='ascii', max_features=10000)
+	transformed_x = vectorizer.fit_transform(all_x)
+	phrase_counts = count_vectorizer.fit_transform(all_x)
+	all_y = np.array(all_y)
+
+	return transformed_x, vectorizer, phrase_counts, count_vectorizer, all_x, all_y, np.array(school_urls)
+
+
+def get_test_ind_subsets(
+		df_g,
+		test_inds,
+		school_urls
+	):
+
+	curr_urls = school_urls[test_inds]
+	df_curr_schools = df_g[df_g['url'].isin(curr_urls)]
+	min_perfrl_test = df_curr_schools.index[df_curr_schools['perfrl'] < 0.5].tolist()
+	maj_perfrl_test = df_curr_schools.index[df_curr_schools['perfrl'] >= 0.5].tolist()
+	min_perwht_test = df_curr_schools.index[df_curr_schools['perwht'] < 0.5].tolist()
+	maj_perwht_test = df_curr_schools.index[df_curr_schools['perwht'] >= 0.5].tolist()
+
+	test_ind_splits = {
+		'all': test_inds,
+		'min_perfrl': min_perfrl_test,
+		'maj_perfrl': maj_perfrl_test,
+		'min_perwht': min_perwht_test,
+		'maj_perwht': maj_perwht_test
+	}
+
+	return test_ind_splits
 
 
 def train_and_test_classifier(
 		data_file='data/Parent_gs_comments_by_school_with_covars.csv',
 		n_gram_end=3,
-		embedding_type='tfidf',
-		outcomes=['mn_avg_eb', 'mn_grd_eb'],
-		output_dir='data/model_outputs/parent_comments/cval_%s/%s/%s/',
-		model_file='%strained_model_%s_train_mse_%s_test_mse_%s_%s_var_%s_run_%s.sav',
-		importances_file='%sfeature_importances_%s_train_mse_%s_test_mse_%s_%s_var_%s_run_%s.json'
+		outcomes=['mn_avg_eb', 'mn_grd_eb', 'perwht', 'perfrl', 'top_level'],
+		output_dir='data/model_outputs/parent_comments/cval/{}/{}/',
+		model_file='{}trained_model_{}_{}_train_mse_{}_test_mse_{}_{}_run_{}.sav',
+		importances_file='{}feature_importances_{}_{}_train_mse_{}_test_mse_{}_{}_run_{}.json',
+		counts_file='{}feature_counts_{}.json',
 	):
 
 	print ('Loading main dataframe ...')
 	df = pd.read_csv(data_file)
 	models = [
-		Ridge,
-		# LinearRegression,
-		# MLPRegressor,
+		ElasticNet,
 		# Lasso,
-		# DecisionTreeRegressor
+		# MLPRegressor,
 		# RandomForestRegressor
 	]
 	for outcome in outcomes:
 
 		df_g = df.dropna(subset=[outcome, 'review_text']).reset_index()
+		# df_g = df.dropna(subset=[outcome, 'review_text']).sample(frac=.01, replace=False).reset_index()
+		df_g[outcome] = (df_g[outcome] - np.mean(df_g[outcome])) / np.std(df_g[outcome])
 
-		if 'bert' in embedding_type:
-
-			print ('Getting BERT embeddings for outcome {} ...'.format(outcome))
-			transformed_x, all_y = load_bert_embeddings(df_g, emb_type=embedding_type, outcome=outcome)
-
-		else:
-
-			print ('Getting TF-IDF embeddings for outcome {} ...'.format(outcome))
-			transformed_x, vectorizer, all_x, all_y = tfidf_vectorize_descriptions(
-				df_g, outcome=outcome, n_gram_end=n_gram_end
-			)
+		print ('Getting TF-IDF embeddings for outcome {} ...'.format(outcome))
+		transformed_x, vectorizer, phrase_counts, count_vectorizer, all_x, all_y, school_urls = tfidf_vectorize_descriptions(
+			df_g, outcome=outcome, n_gram_end=n_gram_end
+		)
 
 		print (transformed_x.shape)
 		print (all_y.shape)
@@ -308,7 +324,14 @@ def train_and_test_classifier(
 		for r in models:
 
 			all_train_losses = []
-			all_test_losses = []
+			all_test_losses = {
+				'all': [],
+				'min_perfrl': [],
+				'maj_perfrl': [],
+				'min_perwht': [],
+				'maj_perwht': []
+			}
+
 			for s in range(0, len(cval_inds)):
 
 				# Set the current test indices
@@ -333,39 +356,42 @@ def train_and_test_classifier(
 				print ('training MSE: ', train_mse)
 				all_train_losses.append(train_mse)
 
-				preds_test = model.predict(transformed_x[test_inds,:])
-				test_mse = mean_squared_error(all_y[test_inds], preds_test)
-				print ('test MSE: ', test_mse)
-				all_test_losses.append(test_mse)
-
-				outcome_var = np.std(all_y)**2
-				print ('variance of outcome: ', outcome_var)
-
-				curr_output_dir = output_dir % (embedding_type, regressor_class, outcome)
+				curr_output_dir = output_dir.format(regressor_class, outcome)
 				if not os.path.exists(curr_output_dir):
 					os.makedirs(curr_output_dir)
 
-				if 'bert' in embedding_type:
-					save_feature_imp_and_model_bert(
-						model,
-						importances_file % (curr_output_dir, outcome, str(train_mse), str(test_mse), regressor_class, outcome_var, s),
-						model_file % (curr_output_dir, outcome, str(train_mse), str(test_mse), regressor_class, outcome_var, s)
-					)
+				test_ind_subsets = get_test_ind_subsets(df_g, test_inds, school_urls)
+				for test_subset in test_ind_subsets:
+					curr_test_inds = test_ind_subsets[test_subset]
+					preds_test = model.predict(transformed_x[curr_test_inds,:])
+					test_mse = mean_squared_error(all_y[curr_test_inds], preds_test)
+					
+					print ('test MSE for {}: {}'.format(test_subset, test_mse))
+					all_test_losses[test_subset].append(test_mse)
 
-				else:
 					save_feature_imp_and_model_tfidf(
 						model,
 						vectorizer,
-						importances_file % (curr_output_dir, outcome, str(train_mse), str(test_mse), regressor_class, outcome_var, s),
-						model_file % (curr_output_dir, outcome, str(train_mse), str(test_mse), regressor_class, outcome_var, s)
+						importances_file.format(curr_output_dir, outcome, test_subset, str(train_mse), str(test_mse), regressor_class, s),
+						model_file.format(curr_output_dir, outcome, test_subset, str(train_mse), str(test_mse), regressor_class, s)
 					)
 
 				del model
 
-			print ('mean and std of train losses: %s, %s' % (np.mean(all_train_losses), np.std(all_train_losses)))
-			print ('mean and std of test losses: %s, %s' % (np.mean(all_test_losses), np.std(all_test_losses)))
+			print ('Saving phrase counts ...')
+			counts_vocab = count_vectorizer.vocabulary_
+			ngram_to_count = {}
+			for i, w in enumerate(counts_vocab):
+				if i % 1000 == 0: print(i)
+				ngram_to_count[w] = int(phrase_counts[:,counts_vocab[w]].sum())
 
-		del transformed_x, all_y
+			write_dict(counts_file.format(curr_output_dir, outcome), ngram_to_count)
+
+			print ('mean and std of train losses for outcome {}: {}, {}'.format(outcome, np.mean(all_train_losses), np.std(all_train_losses)))
+			for test_subset in all_test_losses:
+				print ('mean and std of test losses for outcome {} and subset {}: {}, {}'.format(outcome, test_subset, np.mean(all_test_losses[test_subset]), np.std(all_test_losses[test_subset])))
+
+		del transformed_x, phrase_counts, vectorizer, count_vectorizer, all_x, all_y, df_g
 
 
 def save_feature_imp_and_model_tfidf(
@@ -380,14 +406,15 @@ def save_feature_imp_and_model_tfidf(
 	if model_type != 'MLPRegressor':
 		imp = []
 
-		if model_type in ['LinearRegression', 'Ridge', 'Lasso']:
+		if model_type in ['LinearRegression', 'Ridge', 'Lasso', 'ElasticNet']:
 			imp = model.coef_
 		else:
 			imp = model.feature_importances_
 
 		vocab = vectorizer.vocabulary_
 		word_to_imp = {}
-		for w in vocab:
+		for i, w in enumerate(vocab):
+
 			word_to_imp[w] = imp[vocab[w]]
 
 		print ('Saving feature importances ...')
@@ -397,30 +424,7 @@ def save_feature_imp_and_model_tfidf(
 	pickle.dump(model, open(model_file, 'wb'))
 
 
-def save_feature_imp_and_model_bert(
-		model,
-		importances_file,
-		model_file
-	):
-
-	model_type = model.__class__.__name__
-
-	if model_type != 'MLPRegressor':
-		imp = []
-
-		if model_type in ['LinearRegression', 'Ridge', 'Lasso']:
-			imp = list(model.coef_)
-		else:
-			imp = list(model.feature_importances_)
-
-		print ('Saving feature importances ...')
-		write_dict(importances_file, imp)
-
-	print ('Saving model ...')
-	pickle.dump(model, open(model_file, 'wb'))
-
-	
 if __name__ == "__main__":
-	train_and_test_classifier()
-	# train_and_test_ratings_classifier()
+	# train_and_test_classifier()
+	train_and_test_ratings_classifier()
 

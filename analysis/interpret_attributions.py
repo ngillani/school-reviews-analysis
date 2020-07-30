@@ -14,30 +14,36 @@ nlp = spacy.load("en_core_web_sm")
 # # mn_avg_eb
 # all_phrases = [
 # 	['private school', 'private schools'],
-# 	['the curriculum', 'curriculum'],
-# 	['test scores', 'the test scores'],
-# 	['this school', 'school', 'the school'],
+# 	['academics', 'the academics'],
+# 	['this school', 'school', 'that school'],
+# 	['the test scores', 'test scores'],
 # ]
 
 # # perwht
 # all_phrases = [
 # 	['we','us'],
-# 	['communication', 'the communication', 'contact'],
+# 	['small school'],
 # 	['the teachers', 'teachers', 'the teacher'],
 # 	['the neighborhood'],
 # ]
 
-# perfrl
+# # perfrl
+# all_phrases = [
+# 	['the staff', 'staff', 'her staff'],
+# 	['english'],
+# 	['the pta','the pto','pta'],
+# 	['special needs', 'special education'],
+# ]
+
+# share single parent
 all_phrases = [
-	['the staff', 'staff', 'her staff'],
-	['the gifted program'],
-	['the pta','the pto','pta'],
-	['disabilities', 'disability', 'autism'],
+	['we', 'us', 'our son', 'our daughter'],
+	['my son', 'my sons', 'my daughter', 'my daughters', 'my kids', 'my child'],
 ]
 
 def compute_idf_scores_for_phrases(
 		data_file='data/Parent_gs_comments_comment_level_with_covars.csv',
-		outcome='perfrl',
+		outcome='singleparent_share2010',
 		output_file='data/attributions/{}_idf_analysis.csv'
 	):
 	
@@ -89,13 +95,12 @@ def compute_idf_scores_for_phrases(
 
 
 def output_representative_sentences_per_phrase(
-		model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_{}',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_{}',
 		attributions_file='data/attributions/{}_phrase_context_sentences_min_ngram_{}_max_ngram_{}.json',
 		min_ngram=-1,
 		max_ngram=-1,
 		outcome='perfrl',
 		output_file='data/attributions/{}_representative_sentences_for_phrases.csv'
-		# output_file='data/attributions/{}_all_nounphrases_representative_sentences.csv'
 	):
 
 	from scipy.spatial.distance import cdist
@@ -103,9 +108,6 @@ def output_representative_sentences_per_phrase(
 	encoder = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
 
 	all_sents = read_dict(attributions_file.format(model_key.format(outcome), min_ngram, max_ngram))
-	
-	# num_sent_to_save = 5
-	# all_phrases = [list(all_sents.keys())]
 
 	representative_sentence_per_phrase = {}
 	for phrases in all_phrases:
@@ -117,29 +119,61 @@ def output_representative_sentences_per_phrase(
 			mean_vec = np.mean(encoded, axis=0)
 			
 			similarities = cdist([mean_vec], encoded, metric='cosine')[0]
-			# representative_sentence_per_phrase[p] = curr_phrase_sents[similarities.argsort()[0:num_sent_to_save]].tolist()
 			representative_sentence_per_phrase[p] = curr_phrase_sents[similarities.argsort()[0]]
 			print (representative_sentence_per_phrase[p])
 	
 	write_dict(output_file.format(outcome), representative_sentence_per_phrase)
-			
+		
+
+def output_rep_sentences_for_all_phrases(
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_{}',
+		attributions_file='data/attributions/{}_phrase_context_sentences_min_ngram_{}_max_ngram_{}.json',
+		min_ngram=-1,
+		max_ngram=-1,
+		outcome='mn_grd_eb',
+		output_file='data/attributions/{}_all_nounphrases_representative_sentences.csv'
+	):
+
+	from scipy.spatial.distance import cdist
+	from sentence_transformers import SentenceTransformer
+	encoder = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
+
+	all_sents = read_dict(attributions_file.format(model_key.format(outcome), min_ngram, max_ngram))
+	all_phrases = list(all_sents.keys())
+	representative_sentence_per_phrase = defaultdict(dict)
+
+	for i, p in enumerate(all_phrases):
+		# if i == 1: break
+		curr_phrase_sents = np.array([s[1] for s in all_sents[p]])
+
+		print ('{} Encoding sents for "{}" '.format(i, p))
+		encoded = encoder.encode(curr_phrase_sents)
+		mean_vec = np.mean(encoded, axis=0)
+		
+		similarities = cdist([mean_vec], encoded, metric='cosine')[0]
+		representative_sentence_per_phrase[p]['distances_to_mean_emb'] = sorted(similarities)
+		representative_sentence_per_phrase[p]['sents'] = curr_phrase_sents[similarities.argsort()].tolist()
+
+	write_dict(output_file.format(outcome), representative_sentence_per_phrase)
+
 
 def compare_attributions_to_tfidf_regression_weights(
-		model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_{}',
 		attributions_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
 		min_ngram=-1,
 		max_ngram=-1,
-		regression_outputs_file='data/nlp_outputs/parent_comments/{}_nlp_Ridge_tfidf_cross_validated_outputs.csv',
-		regression_outcome='mn_avg_eb',
-		output_file='data/attributions/{}_linear_bert_regression_scatterplot.csv'
+		regression_outputs_file='data/nlp_outputs/parent_comments/alt_nlp_Ridge_{}_all_phrase_coeffs_scaled_{}.csv',
+		outcome='perfrl',
+		coeff_scaled=True,
+		output_file='data/attributions/alt_{}_linear_bert_regression_scatterplot_scaled_{}.csv'
 	):
 	
-	attributions = read_dict(attributions_file.format(model_key, min_ngram, max_ngram))
+	attributions = read_dict(attributions_file.format(model_key.format(outcome), min_ngram, max_ngram))
 
-	df = pd.read_csv(regression_outputs_file.format(regression_outcome))
+	df = pd.read_csv(regression_outputs_file.format(outcome, coeff_scaled))
 	regression_imp = {}
 	for i in range(0, len(df)):
-		regression_imp[df[regression_outcome + '_word'][i]] = df[regression_outcome + '_importance'][i]
+		regression_imp[df['phrase'][i]] = df['importance'][i]
 
 	linear_regression = []
 	bert_regression = []
@@ -161,7 +195,7 @@ def compare_attributions_to_tfidf_regression_weights(
 	}
 
 	df_out = pd.DataFrame(data=data)
-	df_out.to_csv(output_file.format(regression_outcome))
+	df_out.to_csv(output_file.format(outcome, coeff_scaled))
 
 
 def get_normalized_attributions(attributions_dict):
@@ -274,19 +308,19 @@ def combine_word_pieces(tokens, normalized_attributions, min_ngram=1, max_ngram=
 
 
 def analyze_attributions(
-		# model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
-		# model_key='adv_dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
-		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
-		# model_key='adv_terms_perfrl_perwht-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
-		# model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl',
-		# model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perwht',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perwht',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perfrl',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_grd_eb',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
+		# model_key='adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
 		input_dir='data/attributions/{}/',
 		output_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
 		output_file2='data/attributions/{}_phrase_context_sentences_min_ngram_{}_max_ngram_{}.json',
 		min_ngram=-1,
 		max_ngram=-1,
 		should_remove_stopwords=False,
-		to_exclude=['nan']
+		to_exclude=['nan', 've']
 
 	):
 	
@@ -349,12 +383,8 @@ def analyze_attributions(
 
 
 def output_ngram_scatter_plot_vals(
-		# model_1_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
-		# model_2_key='adv_dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
-		# model_1_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
-		# model_2_key='adv_terms_perfrl_perwht-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
-		model_1_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl',
-		model_2_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perwht',
+		model_1_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
+		model_2_key='adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
 		attributions_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
 		min_ngram=-1,
 		max_ngram=-1,
@@ -378,6 +408,55 @@ def output_ngram_scatter_plot_vals(
 		output_data['model_2_attr'].append(attributions2[n])
 
 	pd.DataFrame(data=output_data).to_csv(output_file.format(model_1_key, model_2_key))
+
+
+def output_attribution_values_for_correlation_matrix(
+		model_keys=['dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb', 'dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_grd_eb', 'dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perwht', 'dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perfrl', 'dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level', 'adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb'],
+		attributions_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
+		min_ngram=-1,
+		max_ngram=-1,
+		output_file='data/attributions/attributions_correlation_matrix.csv'
+	):
+	
+	all_phrase_attr = defaultdict(list)
+
+	print ('Collecting all noun phrases ...')
+	all_nounphrases = set()
+	for k in model_keys:
+		all_nounphrases.update(read_dict(attributions_file.format(k, min_ngram, max_ngram)).keys())
+
+	print ('Storing attr values ...')
+	for k in model_keys:
+		attributions = read_dict(attributions_file.format(k, min_ngram, max_ngram))
+		
+		for p in all_nounphrases:
+
+			try:
+				all_phrase_attr[p].append(attributions[p])
+			except Exception as e:
+				all_phrase_attr[p].append('')
+	
+	output_data = {
+		'phrase': [],
+		'mn_avg_eb': [],
+		'mn_grd_eb': [],
+		'perwht': [],
+		'perfrl': [],
+		'top_level': [],
+		'adv_mn_avg_eb': []
+	}
+
+	for p in all_phrase_attr:
+		output_data['phrase'].append(p)
+		output_data['mn_avg_eb'].append(all_phrase_attr[p][0])
+		output_data['mn_grd_eb'].append(all_phrase_attr[p][1])
+		output_data['perwht'].append(all_phrase_attr[p][2])
+		output_data['perfrl'].append(all_phrase_attr[p][3])
+		output_data['top_level'].append(all_phrase_attr[p][4])
+		output_data['adv_mn_avg_eb'].append(all_phrase_attr[p][5])
+
+	pd.DataFrame(data=output_data).to_csv(output_file, index=False)
+
 
 
 def compute_ngram_clustering(encoded_ngrams):
@@ -414,10 +493,11 @@ def load_and_encode_ngrams(
 
 
 def cluster_attribution_ngrams(
-		model_key='dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl',
-		# model_key='adv_dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_mn_avg_eb',
-		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
-		# model_key='adv_terms_perfrl_perwht-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perwht',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perfrl',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_top_level',
+		# model_key='adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb',
 		attributions_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
 		phrase_occurrences_file='data/attributions/{}_phrase_context_sentences_min_ngram_{}_max_ngram_{}.json',
 		min_ngram=-1,
@@ -502,6 +582,79 @@ def cluster_attribution_ngrams(
 
 	# print (json.dumps(ngram_cluster_assignments, indent=4))
 	# print (len(ngram_cluster_assignments))
+
+
+def output_extended_data_table_for_attributions(
+		# model_key='adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_{}',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_{}',
+		attributions_file='data/attributions/{}_aggregated_attributions_min_ngram_{}_max_ngram_{}.json',
+		clusters_file='data/attributions/{}_clustered_ngrams_min_{}_max_{}.csv',
+		rep_sentences_file='data/attributions/{}_all_nounphrases_representative_sentences.csv',
+		min_ngram=-1,
+		max_ngram=-1,
+		outcome='mn_avg_eb',
+		output_file='data/attributions/{}_extended_data_table.csv'
+	):
+	
+	model_key = model_key.format(outcome)
+	all_attr = read_dict(attributions_file.format(model_key, min_ngram, max_ngram))
+	all_clusters_df = pd.read_csv(clusters_file.format(model_key, min_ngram, max_ngram))
+	all_rep_sentences = read_dict(rep_sentences_file.format(outcome))
+
+
+	output_data = {
+		'cluster_id': [],
+		'noun_phrase': [],
+		'cluster_attribution_mean': [],
+		'cluster_attribution_sd': [],
+		'phrase_attribution': [],
+		'sentence_prototype': []
+	}
+
+	for i in range(0, len(all_clusters_df)):
+		all_phrases = all_clusters_df['ngrams'][i].split(',')
+		for p in all_phrases:
+			output_data['cluster_id'].append(all_clusters_df['cluster_id'][i])
+			output_data['noun_phrase'].append(p)
+			output_data['cluster_attribution_mean'].append(all_clusters_df['weighted_mean_attribution'][i])
+			output_data['cluster_attribution_sd'].append(all_clusters_df['weighted_sd_attribution'][i])
+			output_data['phrase_attribution'].append(all_attr[p])
+			output_data['sentence_prototype'].append(all_rep_sentences[p]['sents'][0])
+		
+	df = pd.DataFrame(data=output_data)
+	df.to_csv(output_file.format(outcome), index=False)
+
+
+def check_model_accuracy_for_subsets(
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb/',
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_grd_eb',		
+		# model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perwht',
+		model_key='dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_perfrl',
+		# covar_mapping_file='Parent_gs_comments_by_school_with_covars_mn_avg_eb_1.753468860986852.p_validation_covar_mapping.json',
+		# covar_mapping_file='Parent_gs_comments_by_school_with_covars_mn_grd_eb_0.03407799589996242.p_validation_covar_mapping.json',
+		# covar_mapping_file='Parent_gs_comments_by_school_with_covars_perwht_0.10859738544574807.p_validation_covar_mapping.json',
+		covar_mapping_file='Parent_gs_comments_by_school_with_covars_perfrl_0.06982405782375048.p_validation_covar_mapping.json',
+		input_dir='data/attributions/{}',
+		covar='perfrl'
+	):
+	
+	attr_input_dir = input_dir.format(model_key)
+	covars = read_dict(input_dir.format(covar_mapping_file))
+	losses = defaultdict(list)
+
+	all_losses = []
+	for num, f in enumerate(os.listdir(attr_input_dir)):
+		print (num)
+		example_key = f.split('_')[0]
+		loss = float(f.split('.json')[0].split('_')[-1])
+		losses[int(covars[example_key][covar] < 0.5)].append(loss)
+		all_losses.append(loss)
+	
+	for k in losses:
+		print (k, len(losses[k]), np.mean(losses[k]), np.std(losses[k]))
+	
+	print ('total: ', np.mean(all_losses), np.std(all_losses))
+
 
 
 def compute_bias_score(neutral_words, neutral_word_weights, mean_baseline_vec, mean_target_vec):
@@ -605,13 +758,15 @@ def compute_linguistic_bias(
 
 
 if __name__ == "__main__":
-	compute_idf_scores_for_phrases()
-	output_representative_sentences_per_phrase()
+	# compute_idf_scores_for_phrases()
+	# output_representative_sentences_per_phrase()
 	# compare_attributions_to_tfidf_regression_weights()
-    # analyze_attributions()
+    analyze_attributions()
     # output_ngram_scatter_plot_vals()
     # cluster_attribution_ngrams()
-    # compute_linguistic_bias()
-
+    # output_rep_sentences_for_all_phrases()
+	# check_model_accuracy_for_subsets()
+	# output_attribution_values_for_correlation_matrix()
+	# output_extended_data_table_for_attributions()
 
 

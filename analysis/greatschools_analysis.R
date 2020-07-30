@@ -1,13 +1,11 @@
 setwd("~/Dropbox (MIT)/lsm/school-ratings-analysis/analysis/")
 
-library(dplyr)
-library(tidyr)
+library(MASS)
 library(stargazer)
-library(ggplot2)
 library(lfe)
 library(corrplot)
 library(jtools)
-library(weights)
+library(tidyverse)
 
 source("data_prep.R")
 
@@ -66,21 +64,6 @@ df_school_leaders_s <- standardize_df_school(df_school_leaders_g)
 cols <- c('overall_rating', 'progress_rating', 'test_score_rating', 'equity_rating', 'seda_mean', 'seda_growth', 'top_level', 'teachers', 'homework', 'bullying', 'learning_differences', 'leadership', 'character', 'percent_nonwhite', 'household_income')
 gs_and_seda_mat <- corrplot(cor(df_s_school[cols], use="complete.obs"), type="upper")
 
-# Number of reviews per stakeholder
-barplot(c(sum(df_students$num_words > 0), sum(df_parents$num_words > 0), sum(df_teachers$num_words > 0), sum(df_comm_membs$num_words > 0), sum(df_school_leaders$num_words > 0)), names.arg=c("Students", "Parents", "Teachers", "Community members", "School leaders"))
-
-# Number of reviews per year
-df_y <- df %>% count(year) %>% filter(year < 2020, year > 2000)
-plot(df_y$year, df_y$n)
-lines(df_y$year, df_y$n)
-title(xlab="Year", ylab="Number of comments")
-
-### Q: What are the characteristics of schools that we have SEDA test score and growth measures for?
-df_s_school$has_seda_mean <- !is.nan(df_s_school$seda_mean)
-df_s_school$has_seda_growth <- !is.nan(df_s_school$seda_growth)
-
-all <- lm(has_seda_growth ~ household_income + percent_nonwhite, data=df_s_school)
-summary(all)
 
 ### Q: What are the characteristics of schools that have more reviews?
 # all <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school)
@@ -99,14 +82,25 @@ df_for_balance$percent_black <- df_s_school$perblk
 df_for_balance$percent_hispanic <- df_s_school$perhsp
 df_for_balance$total_enrollment <- df_s_school$totenrl
 df_for_balance$total_enrollment_orig <- df_s_school$totenrl_orig
-# all_lm <- lm(log_num_reviews_orig ~ five_star + test_score + progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
-# all_lm <- glm(has_reviews ~ share_collegeplus + percent_nonwhite + share_singleparent + household_income, data=df_for_balance)
-all_lm <- glm.nb(num_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
-# all_lm <- glm(num_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, family="poisson", data=df_for_balance)
+all_lm <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
 summ(all_lm)
 plot_summs(all_lm, colors="Qual1", exp=T, coefs=c("SEDA Test Score" = "seda_test_score", "SEDA Progress Score" = "seda_progress_score", "% Free/Reduced Lunch" = "percent_free_reduced_lunch", "% White" = "percent_white", "% Single-Parent Households (in Census tract)" = "share_singleparent", "% Bachelor's or Higher (in Census tract)" = "share_collegeplus", "Total Enrollment" = "total_enrollment", "Rural" = "urbanicityRural", "Suburb" = "urbanicitySuburb", "Small town" = "urbanicityTown"))
 
-# Correlation plot of different vars
+### Q: What are the characteristics of schools that we have SEDA test score and growth measures for?
+df_for_balance$has_seda_test <- !is.nan(df_for_balance$seda_test_score)
+df_for_balance$has_seda_growth <- !is.nan(df_for_balance$seda_progress_score)
+
+all_lm1 <- glm(has_seda_test ~ percent_white, data=df_for_balance, family=binomial())
+all_lm2 <- glm(has_seda_test ~ percent_white + percent_free_reduced_lunch + share_singleparent + share_collegeplus, data=df_for_balance, family=binomial())
+all_lm_full <- glm(has_seda_test ~ percent_white + percent_free_reduced_lunch + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance, family=binomial())
+stargazer(all_lm1, all_lm2, all_lm_full)
+
+all_lm1 <- glm(has_seda_growth ~ percent_white, data=df_for_balance, family=binomial())
+all_lm2 <- glm(has_seda_growth ~ percent_white + percent_free_reduced_lunch + share_singleparent + share_collegeplus, data=df_for_balance, family=binomial())
+all_lm_full <- glm(has_seda_growth ~ percent_white + percent_free_reduced_lunch + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance, family=binomial())
+stargazer(all_lm1, all_lm2, all_lm_full)
+
+################## Correlation matrix ##################
 cols <- c('gs_overall', 'gs_test_score', 'gs_progress_score', 'seda_test_score', 'seda_progress_score', 'percent_free_reduced_lunch', 'percent_white')
 colors <- colorRampPalette(c("red", "white", "darkgreen"))(20)
 # M <- cor(df_for_balance[cols], use="complete.obs")
@@ -116,239 +110,10 @@ colnames(M) <- labels
 rownames(M) <- labels
 gs_and_seda_mat <- corrplot(M, method="number", type="upper", col=colors, tl.col="black")
 
-# By year
-post_2014_inclusive <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2014_onwards)
-post_2016_inclusive <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2016_onwards)
-post_2018_inclusive <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_students_s)
-parents <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_parents_s)
-teachers <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_teachers_s)
-comm_members <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_comm_membs_s)
-school_leaders <- felm(num_reviews ~  seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-
-### Q: What are the characteristics of schools that have longer reviews?
-all <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school)
-# all_lm <- lm(avg_review_len ~ progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite + city_and_state, data=df_s_school)
-
-# By year
-post_2014_inclusive <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2014_onwards)
-post_2016_inclusive <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2016_onwards)
-post_2018_inclusive <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_students_s)
-parents <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_parents_s)
-teachers <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_teachers_s)
-comm_members <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_comm_membs_s)
-school_leaders <- felm(avg_review_len ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-############### Outcomes ###############
-
-### Q: What explains progress ratings?
-
-## No controls
-all <- lm(seda_growth ~ top_level, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_growth ~ top_level, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_growth ~ top_level, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_growth ~ top_level, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_growth ~ top_level, data=df_students_s)
-parents <- lm(seda_growth ~ top_level, data=df_parents_s)
-teachers <- lm(seda_growth ~ top_level, data=df_teachers_s)
-comm_members <- lm(seda_growth ~ top_level, data=df_comm_membs_s)
-school_leaders <- lm(seda_growth ~ top_level, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in categorical ratings
-all <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_students_s)
-parents <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_parents_s)
-teachers <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_teachers_s)
-comm_members <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_comm_membs_s)
-school_leaders <- lm(seda_growth ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in test scores and categorical ratings
-all <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_students_s)
-parents <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_parents_s)
-teachers <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_teachers_s)
-comm_members <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_comm_membs_s)
-school_leaders <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in test scores, categorical ratings, income, race
-all <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_students_s)
-parents <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_parents_s)
-teachers <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_teachers_s)
-comm_members <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_comm_membs_s)
-school_leaders <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## FULL MODEL — all controls and city_state fixed effects
-all <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school)
-# all_lm <- lm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite + city_and_state, data=df_s_school)
-
-# By year
-post_2014_inclusive <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2014_onwards)
-post_2016_inclusive <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2016_onwards)
-post_2018_inclusive <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_students_s)
-parents <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_parents_s)
-teachers <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_teachers_s)
-comm_members <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_comm_membs_s)
-school_leaders <- felm(seda_growth ~ top_level + seda_mean + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-### Q: What explains test score ratings?
-
-## No controls
-all <- lm(seda_mean ~ top_level, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_mean ~ top_level, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_mean ~ top_level, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_mean ~ top_level, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_mean ~ top_level, data=df_students_s)
-parents <- lm(seda_mean ~ top_level, data=df_parents_s)
-teachers <- lm(seda_mean ~ top_level, data=df_teachers_s)
-comm_members <- lm(seda_mean ~ top_level, data=df_comm_membs_s)
-school_leaders <- lm(seda_mean ~ top_level, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in categorical ratings
-all_t <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_students_s)
-parents <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_parents_s)
-teachers <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_teachers_s)
-comm_members <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_comm_membs_s)
-school_leaders <- lm(seda_mean ~ top_level + teachers + bullying + learning_differences + leadership + character + homework, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in progress scores and categorical ratings
-all <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_students_s)
-parents <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_parents_s)
-teachers <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_teachers_s)
-comm_members <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_comm_membs_s)
-school_leaders <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-## Adding in progress scores, categorical ratings, race, income
-all <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_students_s)
-parents <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_parents_s)
-teachers <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_teachers_s)
-comm_members <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_comm_membs_s)
-school_leaders <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-
-## FULL model with controls and city_state fixed effects
-all <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school)
-# all_lm <- lm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite + city_and_state, data=df_s_school)
-
-# By year
-post_2014_inclusive <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2014_onwards)
-post_2016_inclusive <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2016_onwards)
-post_2018_inclusive <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_students_s)
-parents <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_parents_s)
-teachers <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_teachers_s)
-comm_members <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_comm_membs_s)
-school_leaders <- felm(seda_mean ~ top_level + seda_growth + teachers + bullying + learning_differences + leadership + character + homework + household_income + percent_nonwhite | city_and_state, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, school_leaders, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members", "School leaders"))
-
-
-### Q: How much do the user-provided topical ratings correlate with the user-provided 5-star ratings?
-all <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school)
-
-# By year
-post_2014_inclusive <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2014_onwards)
-post_2016_inclusive <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2016_onwards)
-post_2018_inclusive <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_s_school_2018_onwards)
-stargazer(all, post_2014_inclusive, post_2016_inclusive, post_2018_inclusive, type="html",  column.labels=c("All years",">= 2014",">= 2016", ">= 2018"))
-
-# By stakeholder
-students <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_students_s)
-parents <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_parents_s)
-teachers <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_teachers_s)
-comm_members <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_comm_membs_s)
-# school_leaders <- lm(top_level ~ teachers + bullying + learning_differences + leadership + character + homework, data=df_school_leaders_s)
-stargazer(all, students, parents, teachers, comm_members, type="html",  column.labels=c("All","Students","Parents", "Teachers", "Comm. members"))
 
 ################## Visualize relative performance of BERT models for outcomes ##################
 bert_df <- data.frame(outcome=c("Test scores", "Progress scores"),
-                 performance=c(41.5, 4.4))
+                 performance=c(42.0, 1.33))
 
 ggplot(data=bert_df, aes(x=outcome, y=performance)) +
   geom_bar(stat="identity", width=0.5, fill="gray30", outline="black")+
@@ -362,7 +127,7 @@ ggplot(data=bert_df, aes(x=outcome, y=performance)) +
 
 ################## Visualize attributions ##################
 
-df_attr <- read.csv('../data/attributions/dropout_0.3-hid_dim_256-lr_0.0001-model_type_meanbert-outcome_perfrl_clustered_ngrams_min_-1_max_-1.csv', na.strings=c("", "NA"))
+df_attr <- read.csv('../data/attributions/adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_clustered_ngrams_min_-1_max_-1.csv', na.strings=c("", "NA"))
 
 df_top <- df_attr %>%
   mutate(contribution = weighted_mean_attribution, mean_sd_ratio = abs(weighted_mean_attribution / weighted_sd_attribution)) %>%
@@ -397,7 +162,7 @@ ggplot(data=idf_df_to_plot, aes(x=percentile, y=idf_score)) +
 
 ################## Scatterplot for attributions ##################
 dev.off()
-df_scatter <- read.csv('../data/attributions/perfrl_linear_bert_regression_scatterplot.csv')
+df_scatter <- read.csv('../data/attributions/dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_scatterplot.csv')
 cor.test(df_scatter$model_1_attr, df_scatter$model_2_attr)
 df_scatter_sorted <- df_scatter[order(-abs(df_scatter$model_1_attr)),]
 df_scatter_sorted_limit <- df_scatter_sorted
@@ -408,10 +173,10 @@ library(plotly)
 p <- ggplot(df_scatter_sorted_limit) + 
       geom_point(aes(model_1_attr, model_2_attr, labels=ngram)) + 
       # geom_abline(xintercept=0, yintercept=0) +
-      xlab("Attr. for pred. % free reduced lunch") +
-      ylab("Attr. for pred. % white") +
+      xlab("Classical model") +
+      ylab("BERT model") +
       xlim(-20, 20) +
-      ylim(-20, 20)
+      ylim(-10, 10)
 ggplotly(p)
 
 #plot(df_scatter_sorted_limit$model_1_attr, df_scatter_sorted_limit$model_2_attr)
@@ -422,9 +187,102 @@ ggplotly(p)
 df_bias <- read.csv('../data/attributions/tmp_biases_per_group.csv')
 wmwTest(df_bias$group_1_biases, df_bias$group_2_biases)
 
-################## TODO: try mixed effects models instead of averaging over school-level variables and running OLS, as above ##################
 
-library(lme4)
-mem <- lmer(seda_growth ~ seda_mean + (1 | user_type) + (1 | year) + (1 | city_and_state), data=df_s_school)
-summary(mem)
-anova(mem)
+###################################################### SUPMAT FIGURES ######################################################
+
+################## Number of reviews per stakeholder ##################
+df_students <- df %>% filter(user_type == "Student")
+df_parents <- df %>% filter(user_type == "Parent")
+df_teachers <- df %>% filter(user_type == "Teacher")
+df_comm_membs <- df %>% filter(user_type == "Community member")
+df_school_leaders <- df %>% filter(user_type == "School leader")
+
+num_reviews_plot <- data.frame(stakeholder=c("Students", "Parents", "Teachers", "Community members", "School leaders"),
+                             num_reviews=c(sum(df_students$num_words > 0), sum(df_parents$num_words > 0), sum(df_teachers$num_words > 0), sum(df_comm_membs$num_words > 0), sum(df_school_leaders$num_words > 0)))
+ggplot(data=num_reviews_plot, aes(x=stakeholder, y=num_reviews)) +
+  geom_bar(stat="identity", fill="gray30") + 
+  xlab("Stakeholder") + 
+  ylab("Number of reviews") + theme_bw() + 
+  theme(axis.text.x = element_text(size = 13, angle = 0), axis.text.y = element_text(size = 13, angle = 0), panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+################## Number of reviews per year ##################
+df_y <- df %>% filter(year < 2020, year >= 2000)
+df_count <- df_y %>% count(year)
+ggplot(df_count, aes(x=year, y=n)) +
+  geom_line( color="gray30", size=2, alpha=0.9, linetype=1) +
+  xlab("Year") + 
+  ylab("Number of comments") + theme_bw() + 
+  theme(axis.text.x = element_text(size = 13, angle = 0), axis.text.y = element_text(size = 13, angle = 0), panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+################## Biases in SEDA in GS representation (and vice versa) ##################
+
+## SEDA biases in which schools have test and progress scores
+
+
+## GS -> SEDA bias
+df_parents$has_seda_match <- df_parents$url %in% df_seda$url
+df_parents$med_hhinc2016 <- (df_parents$med_hhinc2016 - mean(df_parents$med_hhinc2016, na.rm=T)) / sd(df_parents$med_hhinc2016, na.rm=T)
+df_parents$singleparent_share2010 <- (df_parents$singleparent_share2010 - mean(df_parents$singleparent_share2010, na.rm=T)) / sd(df_parents$singleparent_share2010, na.rm=T)
+df_parents$frac_coll_plus2010 <- (df_parents$frac_coll_plus2010 - mean(df_parents$frac_coll_plus2010, na.rm=T)) / sd(df_parents$frac_coll_plus2010, na.rm=T)
+df_parents$nonwhite_share2010 <- (df_parents$nonwhite_share2010 - mean(df_parents$nonwhite_share2010, na.rm=T)) / sd(df_parents$nonwhite_share2010, na.rm=T)
+parent_school_with_seda_match1 <- glm(has_seda_match ~ med_hhinc2016, data=df_parents, family=binomial)
+parent_school_with_seda_match2 <- glm(has_seda_match ~ med_hhinc2016 + nonwhite_share2010, data=df_parents, family=binomial)
+parent_school_with_seda_match3 <- glm(has_seda_match ~ med_hhinc2016 + nonwhite_share2010 + singleparent_share2010, data=df_parents, family=binomial)
+parent_school_with_seda_match4 <- glm(has_seda_match ~ med_hhinc2016 + nonwhite_share2010 + singleparent_share2010 + frac_coll_plus2010, data=df_parents, family=binomial)
+stargazer(parent_school_with_seda_match1, parent_school_with_seda_match2, parent_school_with_seda_match3, parent_school_with_seda_match4)
+summ(parent_school_with_seda_match)
+
+## SEDA -> GS bias
+df_for_balance <- df_s_school
+df_for_balance$has_reviews <- df_s_school$num_reviews > 0
+df_for_balance$log_num_reviews_orig <- df_s_school$log_num_reviews_orig
+df_for_balance$gs_parent_five_star <- df_s_school$top_level
+df_for_balance$gs_overall <- df_s_school$overall_rating
+df_for_balance$gs_test_score <- df_s_school$test_score_rating
+df_for_balance$gs_progress_score <- df_s_school$progress_rating
+df_for_balance$seda_test_score <- df_s_school$seda_mean
+df_for_balance$seda_progress_score <- df_s_school$seda_growth
+df_for_balance$percent_free_reduced_lunch <- df_s_school$perfrl
+df_for_balance$percent_white <- df_s_school$perwht
+df_for_balance$percent_black <- df_s_school$perblk
+df_for_balance$percent_hispanic <- df_s_school$perhsp
+df_for_balance$total_enrollment <- df_s_school$totenrl
+df_for_balance$total_enrollment_orig <- df_s_school$totenrl_orig
+all_lm1 <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score, data=df_for_balance)
+all_lm2 <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score + percent_white, data=df_for_balance)
+all_lm3 <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score + percent_white + percent_free_reduced_lunch + share_collegeplus + share_singleparent, data=df_for_balance)
+all_lm_full <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
+stargazer(all_lm1, all_lm2, all_lm3, all_lm_full)
+
+################## BERT+IG and Ridge attribution comparisons ##################
+library(gt)
+library(xtable)
+
+df_bert_ridge_attr <- read.csv('../data/attributions/perfrl_linear_bert_regression_scatterplot_scaled_True.csv')
+df_ridge <- df_bert_ridge_attr[order(-abs(df_bert_ridge_attr$model_1_attr)),]
+df_bert <- df_bert_ridge_attr[order(-abs(df_bert_ridge_attr$model_2_attr)),]
+
+top_ridge <- data.frame("Noun_phrase" = df_ridge$ngram, "Ridge_imp" = df_ridge$model_1_attr, "IG_imp" = df_ridge$model_2_attr)
+top_bert <- data.frame("Noun_phrase" = df_bert$ngram, "Ridge_imp" = df_bert$model_1_attr, "IG_imp" = df_bert$model_2_attr)
+top_each <- data.frame("Noun_phrase" = df_ridge$ngram, "Ridge_imp" = df_ridge$model_1_attr, "IG_imp" = df_ridge$model_2_attr, "Noun_phrase" = df_bert$ngram, "Ridge_imp" = df_bert$model_1_attr, "IG_imp" = df_bert$model_2_attr)
+print(xtable(top_each %>% head(25)), include.rownames=F)
+
+top_bert %>%
+  head(25) %>%
+  gt() %>%
+  fmt_number(columns = vars("Ridge_imp"), decimals=2) %>%
+  fmt_number(columns = vars("IG_imp"), decimals=2) %>%
+  tab_options(table.font.size=12)
+################## Correlation matrix of attribution values for noun phrases ##################
+
+df_for_attr_cor <- read.csv('../data/attributions/attributions_correlation_matrix.csv')
+
+# Correlation plot of different vars
+cols <- c('mn_avg_eb', 'mn_grd_eb', 'perwht', 'perfrl', 'top_level', 'adv_mn_avg_eb')
+colors <- colorRampPalette(c("red", "white", "darkgreen"))(20)
+M <- cor(df_for_attr_cor[cols], use="complete.obs")
+# M <- wtd.cor(df_for_balance[cols], weight=abs(df_for_balance$total_enrollment_orig))$cor
+labels <- c('Test scores', 'Progress scores', '% White', '% Free/red. lunch', '5-star rating', 'Test scores (adv)')
+colnames(M) <- labels
+rownames(M) <- labels
+attrs_mat <- corrplot(M, method="number", type="upper", col=colors, tl.col="black")

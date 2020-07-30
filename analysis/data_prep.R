@@ -16,6 +16,7 @@ group_by_school <- function(df_curr){
       homework = mean(homework, na.rm=T),
       household_income = mean(med_hhinc2016, na.rm=T),
       num_reviews = sum(num_words > 0), 
+      num_parent_reviews = sum(user_type == 'Parent'),
       log_num_reviews_orig = log(1 + num_reviews),
       avg_review_len = mean(num_words, na.rm=T),
       percent_nonwhite = mean(nonwhite_share2010, na.rm=T),
@@ -28,27 +29,6 @@ group_by_school <- function(df_curr){
       perfrl = mean(perfrl, na.rm=T),
       perblk = mean(perblk, na.rm=T),
       perhsp = mean(perhsp, na.rm=T),
-      share_singleparent = mean(singleparent_share2010, na.rm=T),
-      totenrl = mean(totenrl, na.rm=T),
-      share_collegeplus = mean(frac_coll_plus2010, na.rm=T),
-      mail_returnrate = mean(mail_return_rate2010, na.rm=T),
-      urbanicity = first(urbanicity)
-    )
-  
-  return (df_g)
-}
-
-# Group data by school
-group_by_school_for_topic_model <- function(df_curr){
-  df_g <- df_curr %>% 
-    group_by(url) %>%
-    summarize(
-      review_text = paste0(review_text, collapse = " "),
-      top_level = mean(top_level, na.rm=T),
-      seda_mean = mean(mn_avg_eb, na.rm=T),
-      seda_growth = mean(mn_grd_eb, na.rm=T),
-      perwht = mean(perwht, na.rm=T),
-      perfrl = mean(perfrl, na.rm=T),
       share_singleparent = mean(singleparent_share2010, na.rm=T),
       totenrl = mean(totenrl, na.rm=T),
       share_collegeplus = mean(frac_coll_plus2010, na.rm=T),
@@ -80,6 +60,7 @@ standardize_df_school <- function(df_curr_g){
       percent_nonwhite = (percent_nonwhite - mean(percent_nonwhite, na.rm=T)) / sd(percent_nonwhite, na.rm=T),
       log_num_reviews_orig = log(1 + num_reviews),
       num_reviews_orig = num_reviews,
+      num_parent_reviews_orig = num_parent_reviews,
       num_reviews = (num_reviews - mean(num_reviews, na.rm=T)) / sd(num_reviews, na.rm=T),
       log_num_reviews = (log(1 + num_reviews) - mean(log(1 + num_reviews), na.rm=T)) / sd(log(1 + num_reviews), na.rm=T),
       seda_mean = (seda_mean - mean(seda_mean, na.rm=T)) / sd(seda_mean, na.rm=T),
@@ -104,7 +85,7 @@ standardize_df_school <- function(df_curr_g){
 # group_by_comment <- function(df_curr){
 #   df_g <- df_curr %>% 
 #     group_by(meta_comment_id) %>%
-#     summarize(
+#     summarise(
 #       progress_rating = mean(progress_rating, na.rm=T), 
 #       test_score_rating = mean(test_score_rating, na.rm=T),
 #       equity_rating = mean(equity_rating, na.rm=T),

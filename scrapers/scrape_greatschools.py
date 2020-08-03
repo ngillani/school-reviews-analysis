@@ -20,41 +20,6 @@ chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=1920x1080")
 chrome_driver = '/usr/local/bin/chromedriver'
 
-def get_school_urls_for_insideschools(
-		is_dir='data/all_is_nyc_data_full_reviews/',
-		output_dir='data/gs_urls_for_is_data/'
-	):
-	
-	import urllib
-
-	driver = webdriver.Chrome(options=chrome_options, executable_path=chrome_driver)
-
-	base_url = 'https://www.greatschools.org/search/search.page?q=%s'
-	url_mapping = {}
-
-	total = set(os.listdir(is_dir))
-	already_pulled = set(os.listdir(output_dir))
-	remaining = total - already_pulled
-
-	for f in remaining:
-		print (f)
-		curr = read_dict(is_dir + f)
-
-		try:
-			url = base_url % urllib.parse.quote_plus(curr['name'].lower() + ' ny')
-		except Exception as e:
-			print ('defining URL for GS: ', e)
-			continue
-
-		try:
-			time.sleep(1)
-			driver.get(url)
-			time.sleep(3)
-			school_list = driver.find_elements_by_class_name('name')
-			write_dict(output_dir + f, {'url': school_list[0].get_attribute("href")})
-		except Exception as e:
-			print ('Exception getting school url: ', e)
-			continue
 
 def get_all_school_urls(
 		states_file='data/all_state_names.json',
@@ -210,15 +175,6 @@ def scrape_all_gs_data(school_links):
 				print (e)
 				pass
 
-			# reviews = soup.find('script', attrs={'data-component-name': 'Reviews'})
-			# if reviews:
-			# 	school_info['reviews'] = json.loads(reviews.get_text())
-			
-			# # Topical Reviews
-			# reviews = soup.find('script', attrs={'data-component-name': 'TopicalReviewSummary'})
-			# if reviews:
-			# 	school_info['topical_reviews'] = json.loads(reviews.get_text())
-
 			file_hash = hashlib.md5(url.encode('utf-8')).hexdigest()
 			write_dict(output_dir + file_hash + '.json', school_info)
 
@@ -229,8 +185,6 @@ def scrape_all_gs_data(school_links):
 def scrape_all_gs_school_addresses(school_links):
 	
 	from bs4 import BeautifulSoup
-
-	# num = float(len(school_links))
 
 	output_dir='data/all_gs_data_addresses/'
 

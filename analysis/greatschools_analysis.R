@@ -11,52 +11,17 @@ source("data_prep.R")
 
 # Load data
 df <- read.csv('../data/all_gs_and_seda_no_comments.csv', na.strings=c("", "NA"))
-# df_old <- read.csv('../data/OLD_all_gs_and_seda_with_comments.csv', na.strings=c("", "NA"))
 
 # Recode some data
 df$year <- as.numeric(substring(df$date,1,4))
 df[df == -1] <- NA
 
-# df_old$year <- as.numeric(substring(df_old$date,1,4))
-# df_old[df_old == -1] <- NA
-
-# Create subsets for different groups
-df_students <- df %>% filter(user_type == "Student")
-df_parents <- df %>% filter(user_type == "Parent")
-df_teachers <- df %>% filter(user_type == "Teacher")
-df_comm_membs <- df %>% filter(user_type == "Community member")
-df_school_leaders <- df %>% filter(user_type == "School leader")
-
-# Create subsets for different years
-df_2014_onwards <- df %>% filter(year >= 2014)
-df_2016_onwards <- df %>% filter(year >= 2016)
-df_2018_onwards <- df %>% filter(year >= 2018)
-
 # Group dataframes
 df_g_school <- group_by_school(df)
-# df_old_g_school <- group_by_school(df_old)
-df_g_2014_onwards <- group_by_school(df_2014_onwards)
-df_g_2016_onwards <- group_by_school(df_2016_onwards)
-df_g_2018_onwards <- group_by_school(df_2018_onwards)
-df_students_g <- group_by_school(df_students)
-df_parents_g <- group_by_school(df_parents)
-df_teachers_g <- group_by_school(df_teachers)
-df_comm_membs_g <- group_by_school(df_comm_membs)
-df_school_leaders_g <- group_by_school(df_school_leaders)
 
 # Standardize dataframes
 df_s_school <- standardize_df_school(df_g_school)
-# df_old_s_school <- standardize_df_school(df_old_g_school)
-df_s_school_2014_onwards <- standardize_df_school(df_g_2014_onwards)
-df_s_school_2016_onwards <- standardize_df_school(df_g_2016_onwards)
-df_s_school_2018_onwards <- standardize_df_school(df_g_2018_onwards)
-df_students_s <- standardize_df_school(df_students_g)
-df_parents_s <- standardize_df_school(df_parents_g)
-df_teachers_s <- standardize_df_school(df_teachers_g)
-df_comm_membs_s <- standardize_df_school(df_comm_membs_g)
-df_school_leaders_s <- standardize_df_school(df_school_leaders_g)
 
-# source("model_utils.R")
 
 ############### Bias analysis and balance checks ############### 
 
@@ -66,7 +31,6 @@ gs_and_seda_mat <- corrplot(cor(df_s_school[cols], use="complete.obs"), type="up
 
 
 ### Q: What are the characteristics of schools that have more reviews?
-# all <- felm(num_reviews ~ seda_mean + seda_growth + progress_rating + test_score_rating + equity_rating + overall_rating + household_income + percent_nonwhite | city_and_state, data=df_s_school)
 df_for_balance <- df_s_school
 df_for_balance$has_reviews <- df_s_school$num_reviews > 0
 df_for_balance$log_num_reviews_orig <- df_s_school$log_num_reviews_orig
@@ -103,7 +67,6 @@ stargazer(all_lm1, all_lm2, all_lm_full)
 ################## Correlation matrix ##################
 cols <- c('gs_overall', 'gs_test_score', 'gs_progress_score', 'seda_test_score', 'seda_progress_score', 'percent_free_reduced_lunch', 'percent_white')
 colors <- colorRampPalette(c("red", "white", "darkgreen"))(20)
-# M <- cor(df_for_balance[cols], use="complete.obs")
 M <- wtd.cor(df_for_balance[cols], weight=abs(df_for_balance$total_enrollment_orig))$cor
 labels <- c("GS Overall", "GS Test Score", "GS Progress Score", "SEDA Test Score", "SEDA Progress Score", "% Free/Reduced Lunch", "% White")
 colnames(M) <- labels
@@ -112,13 +75,13 @@ gs_and_seda_mat <- corrplot(M, method="number", type="upper", col=colors, tl.col
 
 
 ################## Visualize relative performance of BERT models for outcomes ##################
+
+# Hard-coding BERT model performance info
 bert_df <- data.frame(outcome=c("Test scores", "Progress scores"),
                  performance=c(42.0, 1.33))
 
 ggplot(data=bert_df, aes(x=outcome, y=performance)) +
   geom_bar(stat="identity", width=0.5, fill="gray30", outline="black")+
-  # geom_text(aes(label=c("41.5%", "4.4%")), hjust=-0.2, size=3.5)+
-  # ggtitle('% improvement of mean squared error (MSE) over random predictor') + 
   coord_flip() + 
   theme_void()
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
@@ -127,6 +90,7 @@ ggplot(data=bert_df, aes(x=outcome, y=performance)) +
 
 ################## Visualize attributions ##################
 
+# TODO: swap in appropriate file
 df_attr <- read.csv('../data/attributions/adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_clustered_ngrams_min_-1_max_-1.csv', na.strings=c("", "NA"))
 
 df_top <- df_attr %>%
@@ -145,11 +109,14 @@ df_top %>%
   theme(axis.text.y = element_text(size = 13, angle = 0)) + 
   ggtitle("")
 
+# Order clusters by ratio of mean attribution to SD
 df_curr <- df_top %>% filter(contribution < 0, !is.na(mean_sd_ratio))
 df_curr <- df_curr[order(df_curr$mean_sd_ratio),]
 df_curr
 
 ################## Visualize idf plot ##################
+
+# TODO: swap in appropriate file
 orig_idf_df <- read.csv('../data/attributions/perfrl_idf_analysis.csv')
 curr_ind <- 4
 idf_df <- subset(orig_idf_df, select = -c(phrases, X) )
@@ -162,6 +129,8 @@ ggplot(data=idf_df_to_plot, aes(x=percentile, y=idf_score)) +
 
 ################## Scatterplot for attributions ##################
 dev.off()
+
+# TODO: swap in appropriate file
 df_scatter <- read.csv('../data/attributions/dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_adv_terms_perwht_perfrl-dropout_0.3-hid_dim_768-lr_0.0001-model_type_robert-n_layers_1-outcome_mn_avg_eb_scatterplot.csv')
 cor.test(df_scatter$model_1_attr, df_scatter$model_2_attr)
 df_scatter_sorted <- df_scatter[order(-abs(df_scatter$model_1_attr)),]
@@ -172,20 +141,11 @@ library(ggplot2)
 library(plotly)
 p <- ggplot(df_scatter_sorted_limit) + 
       geom_point(aes(model_1_attr, model_2_attr, labels=ngram)) + 
-      # geom_abline(xintercept=0, yintercept=0) +
       xlab("Classical model") +
       ylab("BERT model") +
       xlim(-20, 20) +
       ylim(-10, 10)
 ggplotly(p)
-
-#plot(df_scatter_sorted_limit$model_1_attr, df_scatter_sorted_limit$model_2_attr)
-#text(df_scatter_sorted_limit$model_1_attr, df_scatter_sorted_limit$model_2_attr, labels=df_scatter_sorted_limit$ngram)
-
-################## Hypothesis test for attributions ##################
-
-df_bias <- read.csv('../data/attributions/tmp_biases_per_group.csv')
-wmwTest(df_bias$group_1_biases, df_bias$group_2_biases)
 
 
 ###################################################### SUPMAT FIGURES ######################################################
@@ -216,8 +176,8 @@ ggplot(df_count, aes(x=year, y=n)) +
 
 ################## Biases in SEDA in GS representation (and vice versa) ##################
 
-## SEDA biases in which schools have test and progress scores
-
+df_parents <- read.csv('../data/Parent_gs_comments_by_school_with_covars.csv', na.strings=c("", "NA"))
+df_seda <- read.csv('../data/gs_and_seda_updated.csv', na.strings=c("", "NA"))
 
 ## GS -> SEDA bias
 df_parents$has_seda_match <- df_parents$url %in% df_seda$url
@@ -273,6 +233,8 @@ top_bert %>%
   fmt_number(columns = vars("Ridge_imp"), decimals=2) %>%
   fmt_number(columns = vars("IG_imp"), decimals=2) %>%
   tab_options(table.font.size=12)
+
+
 ################## Correlation matrix of attribution values for noun phrases ##################
 
 df_for_attr_cor <- read.csv('../data/attributions/attributions_correlation_matrix.csv')
@@ -281,7 +243,6 @@ df_for_attr_cor <- read.csv('../data/attributions/attributions_correlation_matri
 cols <- c('mn_avg_eb', 'mn_grd_eb', 'perwht', 'perfrl', 'top_level', 'adv_mn_avg_eb')
 colors <- colorRampPalette(c("red", "white", "darkgreen"))(20)
 M <- cor(df_for_attr_cor[cols], use="complete.obs")
-# M <- wtd.cor(df_for_balance[cols], weight=abs(df_for_balance$total_enrollment_orig))$cor
 labels <- c('Test scores', 'Progress scores', '% White', '% Free/red. lunch', '5-star rating', 'Test scores (adv)')
 colnames(M) <- labels
 rownames(M) <- labels

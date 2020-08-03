@@ -1,60 +1,16 @@
 from header import *
 
 
-def output_lat_longs(
-		input_file='sw_ecdc_addresses.csv',
-		output_file='lat_longs/'
-	):
-	
-	geocode_base_url = 'https://maps.googleapis.com/maps/api/geocode/json?address=%s&sensor=true&key=AIzaSyCYfNHrlvC4976LeGvie31WtG7vIlZ2JuU'
-	df = pd.read_csv('sw_ecdc_addresses.csv')
-	start = 1462
-	for i in range(start, len(df)):
-		print (i)
-		address = str(df['Address'][i]).lower().split('unit')[0].split('apt')[0].split('#')[0]
-		encoded_addr = urllib.quote_plus(address)
-		geocoded = json.loads(requests.get(geocode_base_url % encoded_addr).content)
-		f = open(output_file + str(i) + '.json', 'w')
-		f.write(json.dumps(geocoded, indent=4))
-		f.close()
-
-
-def output_block_fips_from_lat_long(
-		input_file='sw_ecdc_addresses.csv',
-		lat_longs_dir='lat_longs/'
-	):
-
-	df = pd.read_csv('sw_ecdc_addresses.csv')
-	base_url = 'https://geo.fcc.gov/api/census/area?lat=%s&lon=%s&format=json'
-	# BASE_URL = 'https://geocoding.geo.census.gov/geocoder/geographies/address?street=%s&city=%s&state=%s&benchmark=Public_AR_Current&vintage=Current_Current&layers=14&format=json'
-
-	tract_ids = []
-	all_geos = os.listdir(lat_longs_dir)
-	assert (len(df) == len(all_geos))
-	for i in range(0, len(df)):
-
-		print (i)
-		try:
-			curr = json.loads(open(lat_longs_dir + str(i) + '.json').read())
-			lat = curr['results'][0]['geometry']['location']['lat']
-			long = curr['results'][0]['geometry']['location']['lng']
-			result = json.loads(requests.get(base_url % (lat, long)).content)
-			tract_ids.append(result['results'][0]['block_fips'])
-		except Exception as e:
-			print (e)
-			tract_ids.append(float('nan'))
-
-	df['block_fips'] = tract_ids
-	df.to_csv('sw_ecdc_addresses_with_block_fips.csv')
-
-
 def output_block_fips_from_addresses(files):
 
 	input_dir='data/all_gs_data_addresses/'
 	output_dir='data/all_gs_data_tracts/'
 	import urllib 
 
-	BASE_URL_GOOGLE = 'https://maps.googleapis.com/maps/api/geocode/json?address=%s&sensor=true&key=AIzaSyCYfNHrlvC4976LeGvie31WtG7vIlZ2JuU'
+	# NOTE: Use Census API as much as possible to avoid costs; consider using Google for addresses that are unresolveable via Census
+	# Must add an API Key to the end of the Google URL to be able to use
+
+	BASE_URL_GOOGLE = 'https://maps.googleapis.com/maps/api/geocode/json?address=%s&sensor=true&key={}'
 	# BASE_URL_CENSUS = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=%s&benchmark=9&format=json'
 	BASE_URL_FCC = 'https://geo.fcc.gov/api/census/area?lat=%s&lon=%s&format=json'
 
@@ -147,8 +103,6 @@ def output_school_address_file(
 
 
 if __name__ == "__main__":
-	# output_lat_longs()
-	# output_block_fips_from_lat_long()
 	# output_block_fips_from_addresses()
 	# scrape_parallel()
 	# output_school_tract_csv()

@@ -52,7 +52,7 @@ plot_summs(all_lm, colors="Qual1", exp=T, coefs=c("SEDA Test Score" = "seda_test
 
 ### Q: What are the characteristics of schools that have longer reviews (in terms of average number of words)?
 df_alt <- df %>% filter(num_words > 0)
-df_g_school_alt <- group_by_school(df)
+df_g_school_alt <- group_by_school(df_alt)
 df_s_school_alt <- standardize_df_school(df_g_school_alt)
 
 df_for_balance <- df_s_school_alt

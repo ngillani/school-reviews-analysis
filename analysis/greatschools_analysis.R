@@ -74,6 +74,24 @@ rownames(M) <- labels
 gs_and_seda_mat <- corrplot(M, method="number", type="upper", col=colors, tl.col="black")
 
 
+################## Bar chart of phrase cluster prevalence across all schools with parent reviews ##################
+df_phrases <- read.csv('../data/aggregated_Parent_comments_nounphrase_topics.csv', na.strings=c("", "NA"))
+df_phrases <- df_phrases %>% filter(df_phrases$max_percent_schools_occurring_in >= 0.05)
+df_top <- df_phrases %>%
+  mutate(contribution = max_percent_schools_occurring_in) %>%
+  arrange(desc(abs(contribution))) %>%
+  mutate(word2 = reorder(top_3_most_frequent_nounphrases, contribution))
+
+df_top %>%
+  ggplot(aes(word2, max_percent_schools_occurring_in, fill = max_percent_schools_occurring_in > 0)) +
+  geom_col(show.legend = FALSE, fill="darkseagreen4") +
+  coord_flip(expand=TRUE) +
+  xlab("") +
+  ylab("") +
+  theme(axis.text.y = element_text(size = 10, angle = 0)) + 
+  ggtitle("")
+
+
 ################## Visualize relative performance of BERT models for outcomes ##################
 
 # Hard-coding BERT model performance info

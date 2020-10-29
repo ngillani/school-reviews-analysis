@@ -50,6 +50,29 @@ all_lm <- glm.nb(num_parent_reviews_orig ~ seda_test_score + seda_progress_score
 summ(all_lm)
 plot_summs(all_lm, colors="Qual1", exp=T, coefs=c("SEDA Test Score" = "seda_test_score", "SEDA Progress Score" = "seda_progress_score", "% Free/Reduced Lunch" = "percent_free_reduced_lunch", "% White" = "percent_white", "% Single-Parent Households (in Census tract)" = "share_singleparent", "% Bachelor's or Higher (in Census tract)" = "share_collegeplus", "Total Enrollment" = "total_enrollment", "Rural" = "urbanicityRural", "Suburb" = "urbanicitySuburb", "Small town" = "urbanicityTown"))
 
+### Q: What are the characteristics of schools that have longer reviews (in terms of average number of words)?
+df_alt <- df %>% filter(num_words > 0)
+df_g_school_alt <- group_by_school(df)
+df_s_school_alt <- standardize_df_school(df_g_school_alt)
+
+df_for_balance <- df_s_school_alt
+df_for_balance$avg_review_len_orig <- round(df_s_school_alt$avg_review_len_orig)
+df_for_balance$gs_parent_five_star <- df_s_school_alt$top_level
+df_for_balance$gs_overall <- df_s_school_alt$overall_rating
+df_for_balance$gs_test_score <- df_s_school_alt$test_score_rating
+df_for_balance$gs_progress_score <- df_s_school_alt$progress_rating
+df_for_balance$seda_test_score <- df_s_school_alt$seda_mean
+df_for_balance$seda_progress_score <- df_s_school_alt$seda_growth
+df_for_balance$percent_free_reduced_lunch <- df_s_school_alt$perfrl
+df_for_balance$percent_white <- df_s_school_alt$perwht
+df_for_balance$percent_black <- df_s_school_alt$perblk
+df_for_balance$percent_hispanic <- df_s_school_alt$perhsp
+df_for_balance$total_enrollment <- df_s_school_alt$totenrl
+df_for_balance$total_enrollment_orig <- df_s_school_alt$totenrl_orig
+all_lm <- glm.nb(avg_review_len_orig ~ seda_test_score + seda_progress_score + percent_free_reduced_lunch + percent_white + share_singleparent + share_collegeplus + total_enrollment + urbanicity, data=df_for_balance)
+summ(all_lm)
+plot_summs(all_lm, colors="Qual1", exp=T, coefs=c("SEDA Test Score" = "seda_test_score", "SEDA Progress Score" = "seda_progress_score", "% Free/Reduced Lunch" = "percent_free_reduced_lunch", "% White" = "percent_white", "% Single-Parent Households (in Census tract)" = "share_singleparent", "% Bachelor's or Higher (in Census tract)" = "share_collegeplus", "Total Enrollment" = "total_enrollment", "Rural" = "urbanicityRural", "Suburb" = "urbanicitySuburb", "Small town" = "urbanicityTown"))
+
 ### Q: What are the characteristics of schools that we have SEDA test score and growth measures for?
 df_for_balance$has_seda_test <- !is.nan(df_for_balance$seda_test_score)
 df_for_balance$has_seda_growth <- !is.nan(df_for_balance$seda_progress_score)
